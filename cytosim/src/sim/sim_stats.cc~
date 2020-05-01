@@ -1,0 +1,820 @@
+//RCS: $Id: sim_stats.cc,v 2.27 2005/04/22 12:28:40 nedelec Exp $
+
+
+//===========================================================================
+//==================== DATA COLLECTION "on the fly" =========================
+//===========================================================================
+
+// recordStatistics can compute and save ad-hoc data for each scenario,
+// for every MP.statistics[1] simulation steps, i.e. at much higher rate that
+// could be done using/analysing the standard file 'result.out'
+// without unnecessary filling the disc space.
+
+// ===========================================================================================================================
+//						 Last modified
+// ........ By Neha 12 August 2014: case 9 added i.e. recordStatistics9() which is a combination of case 5 and case 7 to output
+// .........i.e. time, aster#, aster position, MTname, MT length, +end.X, +end.Y
+//---------------------------------------------------------------------------------------------------------
+// Neha Khetan modified: April 2015: printing error in format of the output file in CA
+// 1D - 2D solved!!!!! 
+// 7 May 2016: include the coordinates of MT center
+
+
+//=====  RECORD Statistics 10 => coordinates of al lcomplexes
+//===== Neha Khetan,  Coordinates of complexes
+//===== October 2015 
+
+// ============================================================================================================================
+
+// TO output the motor bound to filament
+void SIM::recordGhStatistics(bool closeFile)
+{
+
+  //open the file "ghstatistics.out" to write if needed
+ 
+ if ( IOGhStat.getOutputFile() == 0 ) {
+    try {
+      IOGhStat.openOutputFile("ghstatistics.out");
+
+    } catch( IOException e ) {
+      MSG.warning("openOutputFile(ghstatistics.out) failed in SIM::recordGhStatistics", e.getMessage());
+      return;
+    }
+    //uncomment the following line to produce text output
+    IOGhStat.produceBinaryOutput(false);
+  }
+
+  try {
+
+    //run the function specified by the parameter MP.ghstatistics[0]
+    switch( MP.ghstatistics[0] ) {
+      case 1:    recordGhStatistics1(); break;
+     
+     		
+      default:
+      MSG("sim_stat.cc: the value of MP.ghstatistics does not correspond to any valid case");
+    }
+
+    //make sure that this frame is actually written
+    IOGhStat.flush();
+
+  } catch( IOException e ) {
+    MSG.warning("Exception in SIM::recordGhStatistics", e.getMessage());
+    return;
+  }
+
+  //close the file if asked
+  if ( closeFile )
+    IOGhStat.closeOutputFile();
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// ========================================================================================================
+
+
+// TO output the motor bound to filament
+void SIM::recordStatistics(bool closeFile)
+{
+
+  //open the file "statistics.out" to write if needed
+ 
+ if ( IOStat.getOutputFile() == 0 ) {
+    try {
+      IOStat.openOutputFile("statistics.out");
+
+    } catch( IOException e ) {
+      MSG.warning("openOutputFile(statistics.out) failed in SIM::recordStatistics", e.getMessage());
+      return;
+    }
+    //uncomment the following line to produce text output
+    IOStat.produceBinaryOutput(false);
+  }
+
+  try {
+
+    //run the function specified by the parameter MP.statistics[0]
+    switch( MP.statistics[0] ) {
+      case 1:    recordStatistics1(); break;
+      case 2:    recordStatistics2(); break;
+      case 3:    recordStatistics3(); break;
+      case 4:    recordStatistics4(); break;
+      case 5:    recordStatistics5(); break;
+      case 6:    recordStatistics6(); break;
+      case 7:    recordStatistics7(); break;
+      case 8:    recordStatistics8(); break;
+      case 9:    recordStatistics9(); break;
+      case 10:   recordStatistics10(); break;
+     		
+      default:
+      MSG("sim_stat.cc: the value of MP.statistics does not correspond to any valid case");
+    }
+
+    //make sure that this frame is actually written
+    IOStat.flush();
+
+  } catch( IOException e ) {
+    MSG.warning("Exception in SIM::recordStatistics", e.getMessage());
+    return;
+  }
+
+  //close the file if asked
+  if ( closeFile )
+    IOStat.closeOutputFile();
+}
+
+
+
+
+
+
+//===========================================================================
+//this records the position of one aster, F. Nedelec for aster positionning in box
+void SIM::recordStatistics1()
+{
+  static int virgin = 1;
+
+  if ( virgin ) {
+    virgin = 0;
+    IOStat.writeString("%% recordStatistics1()\n");
+    IOStat.writeString("%% time, x-y-z for aster1, <L> for MTs, # MT far-inside, # MT inside, # MT ouside\n");
+  }
+
+  Aster * as1 = firstAster();
+  if ( as1 == 0 ) return;
+
+  //record time:
+  IOStat.writeReal32( simTime() );
+
+  //record aster position:
+  Vecteur pos_as1 = as1->getPosition();
+  IOStat.writeReal32Vect( DIM, pos_as1 );
+
+  int out[] = {0, 0, 0 };
+
+  //record which MT is inside / near or outside the box
+  for(Microtub * mt = firstMicrotub(); mt; mt=mt->next() ) {
+
+    Vecteur w = mt->whereEnd(MT_PLUS_END);
+
+    if ( Microtub::space->isInside(w, 1.0) )
+      ++out[0];
+    else if ( Microtub::space->isInside(w) )
+      ++out[1];
+    else
+      ++out[2];
+
+  }
+  IOStat.writeReal32( meanMTLength() );
+  IOStat.writeInt16( out[0], out[1], out[2] );
+  IOStat.writeFormattingNewLine();
+}
+
+
+
+//===========================================================================
+//positions of two aster, and links between them. F. Nedelec.
+void SIM::recordStatistics2()
+{
+  static int virgin = 1;
+  if ( virgin ) {
+    virgin = 0;
+    IOStat.writeString("%% recordStatistics2()\n");
+    IOStat.writeString("%% time, aster1 x-y-z, aster2 x-y-z, para-anti-intra links-0, para-anti-intra links-1, para-anti-intra gh-links\n");
+  }
+
+  Aster * as1 = findAster( 1 );
+  if ( as1 == 0 ) return;
+
+  IOStat.writeReal32( simTime() );
+
+  Vecteur pos_as1  = as1->getPosition();
+  IOStat.writeReal32Vect( DIM, pos_as1 );
+
+  Aster * as2 = findAster( 2 );
+  if ( as2 == 0 )       { IOStat.writeFormattingNewLine(); return; }
+
+  Vecteur pos_as2  = as2->getPosition();
+  IOStat.writeReal32Vect( DIM, pos_as2 );
+
+  real distance = ( pos_as1 - pos_as2 ).norm();
+
+  int  para[ParamSim::MAX], anti[ParamSim::MAX], intra[ParamSim::MAX];
+
+  for (int ty = 0; ty < MP.MAX; ++ty) {
+    intra[ty] = 0;
+    para[ty]  = 0;
+    anti[ty]  = 0;
+  }
+
+  for(Complex * cx = firstBridgeComplex(); cx ; cx=cx->next() ) {
+    int ty=cx->getType();
+
+    const MicrotubOrganizer * mo1 = cx->getHand1().getMT()->getOrganizer();
+    const MicrotubOrganizer * mo2 = cx->getHand2().getMT()->getOrganizer();
+
+    if ( mo1 == mo2 )
+      ++intra[ty];
+    else
+      if ( cx->cosAngle() < 0)
+        ++anti[ty];
+      else
+        ++para[ty];
+  }
+
+  IOStat.writeInt16( para[0], anti[0], intra[0] );
+  IOStat.writeInt16( para[1], anti[1], intra[1] );
+
+  int links = para[ 0 ] + anti[ 0 ] + para[ 1 ] + anti[ 1 ];
+
+
+  //statistic reports for Grafteds:
+  for (int ty = 0; ty < MP.MAX; ++ty) {
+    intra[ty] = 0;
+    para[ty]  = 0;
+    anti[ty]  = 0;
+  }
+
+  Solid * asso;
+  //scan through all the Grafted of Aster 1:
+  asso = as1->getSolid();
+  for( int ii = 0; ii < asso->nbGrafteds(); ++ii ) {
+    const Grafted * gh  = asso->getGrafted(ii);
+    int ty              = gh->getType();
+    const Microtub * mt = gh->getHand().getMT();
+    if ( mt ) {
+      if ( mt->getOrganizer() == as1 )
+        ++intra[ty];
+      else
+        ++para[ty];
+    }
+  }
+
+  //scan through all the Grafted of Aster 2:
+  asso = as2->getSolid();
+  for( int ii = 0; ii < asso->nbGrafteds(); ++ii ) {
+    const Grafted * gh  = asso->getGrafted(ii);
+    int ty              = gh->getType();
+    const Microtub * mt = gh->getHand().getMT();
+    if ( mt ) {
+      if ( mt->getOrganizer() == as2 )
+        ++intra[ty];
+      else
+        ++para[ty];
+    }
+  }
+
+
+
+  links += para[ 1 ];
+
+  IOStat.writeInt16( para[1], anti[1], intra[1] );
+
+  IOStat.writeFormattingNewLine();
+
+  //we stop the simulations if asters have fused or are not connected:
+  if ( MP.autostop && ( simTime() > 200 )) {
+    if ( distance < 2 ) { MSG("autostop: fused asters\n"); finish_now = true; }
+    if ( links <= 3 )   { MSG("autostop: few links\n");    finish_now = true; }
+  }
+}
+
+
+//===========================================================================
+//used for nuclear positioning in S. pombe. D. Foethke
+void SIM::recordStatistics3()
+{
+  static bool  virgin = true;
+  static Step  lastStatRec = iterationCnt();
+  Microtub*    mt;
+  Vecteur      vect;
+//  real        force;
+//  Vecteur*    catPos = new Vecteur[];
+  unsigned int nbCat = 0;
+
+  if ( virgin ) {
+    virgin = false;
+    //we definitely want binary output
+    IOStat.produceBinaryOutput(true);
+
+    IOStat.writeString("%% recordStatistics3()\n");
+//    IOStat.writeString("%% time, nucleus x-y-z, mt plus-end x-y-z, mt plus-end forces (calculated), mt plus-end forces (projection)\n");
+    IOStat.writeString("%% time, nucleus x-y-z, nb of mt catastrophes, x-y-z positions of mt catastrophes, distance to cortex\n");
+
+    //write binary signature
+    IOStat.writeBinarySignature();
+
+    //write a FileFormatVersion for this statistical file (read is done in python or matlab)
+    IOStat.writeFileFormatVersion( 2 );
+  }
+
+  //count the total number of catastrophes
+  for( Nucleus* nu = firstNucleus(); nu; nu=nu->next() ) {
+
+    for( int mtIndx = 0 ; mtIndx < nu->maxNbMicrotub(); mtIndx++ ) {
+      if( nu->hasMicrotub(mtIndx) ) {
+        mt = nu->getMicrotub(mtIndx);
+
+        //count the number of mt catastrophes since the last stat frame was written
+        MTDynamicState state_now = mt->getDynamicState( MT_PLUS_END );
+        if( state_now == MT_SHRINKING ) {
+          Step when = mt->getLastStateChange( MT_PLUS_END );
+          if( when > lastStatRec ) {
+            nbCat++;
+          }
+        }
+      }
+    }
+  }
+
+  //write a frame only, if a catastrophe occured
+  if( nbCat > 0 ) {
+
+    //write simulation time
+    IOStat.writeReal32( simTime() );
+
+    for( Nucleus* nu = firstNucleus(); nu; nu=nu->next() ) {
+
+      //the position of the nucleus
+      vect = nu->getPosition();
+      IOStat.writeReal32Vect( DIM, vect );
+
+      //write the number of mt catastrophes
+      IOStat.writeUInt16( nbCat );
+
+      //if a mt had a catastrophe, write the time and position where it happened
+      //as well as the distance of the mt end to the cortex
+      if( nbCat ) {
+        for( int mtIndx = 0 ; mtIndx < nu->maxNbMicrotub(); mtIndx++ ) {
+          if( nu->hasMicrotub(mtIndx) ) {
+            mt = nu->getMicrotub(mtIndx);
+            MTDynamicState state_now = mt->getDynamicState( MT_PLUS_END );
+            if( state_now == MT_SHRINKING ) {
+              Step when = mt->getLastStateChange( MT_PLUS_END );
+              if( when > lastStatRec ) {
+                Vecteur position = mt->getPosLastStateChange( MT_PLUS_END );
+                Vecteur projection;
+                mt->getSpace()->project( position, projection );
+
+                IOStat.writeReal32Vect( DIM, position );
+                IOStat.writeReal32( (position - projection).norm() );
+              }
+            }
+          }
+        }
+      }
+
+      IOStat.writeFormattingNewLine();
+    }
+  }
+  lastStatRec = iterationCnt();
+}
+
+//===========================================================================
+//this is for Vale & Gohta's simulations, Jan 2005 F. Nedelec.
+void SIM::recordStatistics4()
+{
+  static bool virgin = true;
+  if ( virgin ) {
+    virgin = false;
+    IOStat.produceBinaryOutput(false);
+    IOStat.writeString("%% recordStatistics4()\n");
+    IOStat.writeString("%% time, x-y-z for asters, distance of K-fibers minus-ends to aster center\n");
+  }
+
+  //record time:
+  IOStat.writeReal32( simTime() );
+  IOStat.writeFormattingSpace(3);
+
+  Aster * as1 = findAster(1);
+  Aster * as2 = findAster(2);
+
+  Vecteur pos;
+
+  switch( nbAster() ) {
+    case 1: {
+      if ( as1 == 0 ) return;
+      Vecteur pos_as1 = as1->getPosition();
+      IOStat.writeReal32Vect( DIM, pos_as1 );
+      IOStat.writeFormattingSpace(3);
+      //distance of minus-ends of K-fibers to aster-center:
+      for( Microtub * mt = firstMicrotub(); mt ; mt=mt->next())
+        if ( mt->getType() == MAGIC_TYPE )
+          IOStat.writeReal32( distance( mt->whereEnd( MT_MINUS_END ), pos_as1 ));
+    } break;
+    case 2: {
+      if (( as1 == 0 ) || ( as2 == 0 )) return;
+      Vecteur pos_as1 = as1->getPosition();
+      IOStat.writeReal32Vect( DIM, pos_as1 );
+      IOStat.writeFormattingSpace(3);
+      Vecteur pos_as2 = as2->getPosition();
+      IOStat.writeReal32Vect( DIM, pos_as2 );
+      IOStat.writeFormattingSpace(3);
+      //distance of minus-ends of K-fibers to aster-center:
+      for( Microtub * mt = firstMicrotub(); mt ; mt=mt->next())
+        if ( mt->getType() == MAGIC_TYPE ) {
+          IOStat.writeReal32( distance( mt->whereEnd( MT_MINUS_END ), pos_as1 ));
+          IOStat.writeReal32( distance( mt->whereEnd( MT_MINUS_END ), pos_as2 ));
+          IOStat.writeFormattingSpace(2);
+        }
+    } break;
+    case 0:
+    default:
+      return;
+  }
+  IOStat.writeFormattingNewLine();
+}
+
+//===========================================================================
+//===== Recording movement of multiple asters in array-of-nuclei-
+//===== Chaitanya Athale, EMBL Heidelberg, Karsenti-Lab
+//===== 04-Feb-2008
+void SIM::recordStatistics5()
+{
+  static bool virgin = true;
+  if ( virgin ) {
+    virgin = false;
+    IOStat.writeString("%% recordStatistics5()\n");
+    IOStat.writeString("%% time, aster-number, x-y-z for asters\n");
+  }
+  Vecteur pos;
+  //put your code here
+  //----------
+  for( Aster* as1 = firstAster(); as1; as1=as1->next() ) {
+
+      Vecteur pos = as1->getPosition();
+      //record time:
+	  IOStat.writeReal32( simTime() );
+	  IOStat.writeFormattingSpace(3);
+	  IOStat.writeReal32( as1->getName() );
+          IOStat.writeFormattingSpace(3);
+          IOStat.writeReal32Vect( DIM, pos );
+          IOStat.writeFormattingNewLine();
+      }
+}
+
+//===========================================================================
+void SIM::recordStatistics6()
+{
+  static bool virgin = true;
+  if ( virgin ) {
+    virgin = false;
+    IOStat.writeString("%% recordStatistics6()\n");
+	IOStat.writeString("%% time, aster-number, as_xy, asAniso, asAssym\n");
+  }
+	Vecteur pos;
+	//code to calculate length anisotropy
+	
+	//----------
+	for( Aster* as1 = firstAster(); as1; as1=as1->next() ) {
+		
+		
+
+		Vecteur pos = as1->getPosition();
+		//record time:
+		IOStat.writeReal32( simTime() );
+		IOStat.writeFormattingSpace(3);
+		
+		IOStat.writeReal32( as1->getName() );
+		IOStat.writeFormattingSpace(3);
+		
+		IOStat.writeReal32Vect( DIM, pos );
+		
+		//--------
+		//This code finds the microtubule lengths, and calculates asymmetry and anisotropy
+		int mtmax = as1->getAsmtmax();
+		real x1, y1, angl, len1, len2, asAssy, asAniso;
+		for (int i=0; i < mtmax; i++) {
+			//printf("mt no: %i\n",i);
+			//normalize minus end position with respect to the position of the aster
+			x1 = as1->getMicrotub(i)->whereEnd(MT_MINUS_END).XX - pos[0];
+			y1 = as1->getMicrotub(i)->whereEnd(MT_MINUS_END).YY - pos[1];
+			angl = atan2(  y1, x1 ) *180/M_PI;//ANGLE = ATAN2( YY , XX)
+			//angl = atan2(  y1, x1 ) ;//*180/M_PI;//ANGLE = ATAN2( YY , XX)
+			if(  fabs(angl) <= 90  ){
+				len1 += as1->getMicrotub(i)->length();
+			}else {
+				len2 += as1->getMicrotub(i)->length();
+			}
+			//printf("angle: %f\n", angl);
+			
+		}
+		if(len1 > 0 ){
+			asAssy = len2/len1;
+		}else {
+			asAssy = len2/MP.mtrodlength;
+		}
+		
+		asAniso = (len2-len1)/(len2+len1);
+		//--------
+		//printf("length1: %f, length2: %f, aniso: %f, assy: %f\n", len1, len2, asAniso, asAssy);
+		
+		//write anisotropy and asymmetry values
+		IOStat.writeReal32( asAniso );//as1->getAnisotropy() );
+		IOStat.writeReal32( asAssy );
+		
+		IOStat.writeFormattingNewLine();
+		
+	}
+	//------
+}
+
+
+//===========================================================================
+//Write the lengths of the individual microtubules clamped to the center, even if an Aster is absent
+void SIM::recordStatistics7()
+{
+  static bool virgin = true;
+  if ( virgin ) {
+    virgin = false;
+    IOStat.writeString("%% recordStatistics7()\n");
+    IOStat.writeString("%% time, MTname, MTlen, +end.x, +end.y, angle-xaxis\n");
+  }
+  //IOStat.writeReal32( simTime());
+  //put your code here
+  Vecteur pTip;
+  Vecteur xax(1, 0, 0);
+  float xangl;
+  //calculate lengths of MTs
+  for( Microtub * mt = firstMicrotub(); mt; mt = mt->next() ) {
+       IOStat.writeReal32( simTime());
+       IOStat.writeInt16( mt->getName());
+       IOStat.writeReal32( mt->length() );
+       IOStat.writeReal32(mt->whereEnd(MT_PLUS_END).XX);
+       IOStat.writeReal32(mt->whereEnd(MT_PLUS_END).YY);
+
+       //---Angles between +end and +ve x-axis using ARCTAN2 for 2D vector
+       //---Alternative to use dot-product
+       //---angle output in degrees or radians
+	   pTip = mt->whereEnd(MT_PLUS_END);
+	   //float n1= ( pTip[0]*xax[0] ) + ( pTip[1]*xax[1] );
+	   //float d1= pow( (pow(pTip[0],2)+ pow(pTip[1],2)), 0.5 ) + pow( (pow(xax[0],2)+ pow(xax[1],2)), 0.5 );
+	   //xangl=acos ( n1 / d1 );
+	   float x1= pTip[0] - MP.asVect[0];
+	   float y1= pTip[1] - MP.asVect[1];
+	   xangl = atan2(  y1, x1 ) *180/M_PI;//ANGLE = ATAN2( YY , XX)
+	   IOStat.writeReal32( xangl  );
+	   //printf("angl: %f\n",  xangl );
+       IOStat.writeFormattingNewLine();
+  }
+  //IOStat.writeReal32( meanMTLength() );
+  //IOStat.writeFormattingNewLine();
+}
+
+
+
+
+
+//===========================================================================
+
+void SIM::recordStatistics8()
+{
+  static bool virgin = true;
+
+  if ( virgin ) {
+    virgin = false;
+    IOStat.writeString("%% recordStatistics7()\n");
+    IOStat.writeString("%% time, S(len) tow, S(len) away, max(L) tow, max(L) away\n");
+  }
+
+
+//////////// CHAITANYA
+	float maxLenP = 0, maxLenN=0, totLenP=0, totLenN=0, xangl, angN[8];
+	Vecteur pTip, xax;
+	xax[0]=1;//unit vector along x-axis
+	xax[1]=0;
+	xax[2]=0;
+    for( Microtub * mti=firstMicrotub(); mti; mti=mti->next() ){
+		 real x = mti->whereEnd(MT_PLUS_END).XX;
+		 //printf("%lx, %f, %f\n",  mti->getName(),  mti->whereEnd(MT_PLUS_END).XX, mti->length());
+		 if (mti->whereEnd(MT_PLUS_END).XX <= MP.asVect[0]){ // away from  nucleus
+		     totLenN= totLenN + mti->length();
+			 if(mti->length() > maxLenN)
+			    maxLenN = mti->length();
+		 }
+	     else if (mti->whereEnd(MT_PLUS_END).XX > MP.asVect[0]){// towards  nucleus
+			 totLenP= totLenP + mti->length();
+			 if(mti->length() > maxLenP)
+			    maxLenP = mti->length();
+		 }
+		 /*
+		 //caclulate angles between +end and +ve x-axis
+ 	 	 pTip = mti->whereEnd(MT_PLUS_END);
+         xangl=acos(( (pTip[0]*xax[0])+(pTip[1]*xax[1]) )/( sqrt( pow(pTip[0],2)+ pow(pTip[1],2) ) * sqrt( pow(xax[0],2)+ pow(xax[1],2) )  ));
+
+         if(xangl>=0 && xangl<=45)
+         	angN[ 0 ]++;
+		 else if(xangl<=90)
+         	angN[ 1 ]++;
+         else if(xangl<=135)
+			angN[ 2 ]++;
+		 else if(xangl<=180)
+			angN[ 3 ]++;
+		 else if(xangl<=225)
+			angN[ 4 ]++;
+		 else if(xangl<=270)
+			angN[ 5 ]++;
+		 else if(xangl<=315)
+			angN[ 6 ]++;
+		 else if(xangl< 360)
+		 	angN[ 7 ]++;
+		 else
+		 	printf("not valid angle \n");
+		 	*/
+
+
+	}
+////////////
+
+
+  //record time:
+  IOStat.writeReal32( simTime() );
+  //put your code here
+  //Write the length values
+  IOStat.writeReal32(  totLenP );
+  IOStat.writeReal32(  totLenN );
+  IOStat.writeReal32(  maxLenP );
+  IOStat.writeReal32(  maxLenN );
+/*
+  IOStat.writeReal32(  angN[0] );
+  IOStat.writeReal32(  angN[1] );
+  IOStat.writeReal32(  angN[2] );
+  IOStat.writeReal32(  angN[3] );
+  IOStat.writeReal32(  angN[4] );
+  IOStat.writeReal32(  angN[5] );
+  IOStat.writeReal32(  angN[6] );
+  IOStat.writeReal32(  angN[7] );
+*/
+  IOStat.writeFormattingNewLine();
+}
+
+// ==============================
+
+//===========================================================================
+//Write the lengths and positions of the plus ends of MTS
+// Chaitnaya Athale, 2014-11-21 for gliding assay simulations
+// Neha Khetan modified: April 2015: printing error in format of the output file in CA
+// 7 May 2016: include the coordinates of MT center
+
+void SIM::recordStatistics9()
+{
+	static bool virgin = true;
+	if ( virgin ) {
+		virgin = false;
+		IOStat.writeString("%% recordStatistics9()\n");
+		IOStat.writeString("%% time, MTname, MTlen, +end.x, +end.y , -end.x, -end.y , MT center\n");
+	}
+	
+	  
+	//calculate lengths of MTs
+	for( Microtub * mt = firstMicrotub(); mt; mt = mt->next() ) {
+		IOStat.writeReal32( simTime());
+		IOStat.writeInt16( mt->getName());
+		IOStat.writeReal32( mt->length() );
+		IOStat.writeReal32( mt->whereEnd(MT_PLUS_END).XX);
+		IOStat.writeReal32( mt->whereEnd(MT_PLUS_END).YY);
+		IOStat.writeReal32( mt->whereEnd(MT_MINUS_END).XX);
+		IOStat.writeReal32(mt->whereEnd(MT_MINUS_END).YY);
+                Vecteur mtCenter  = mt->getPosition();		// Neha , to consider the MT center coordinates  
+		IOStat. writeReal32Vect( DIM , mtCenter);       // Neha , to consider the MT center coordinates    
+		IOStat.writeFormattingNewLine();		
+
+		
+		//.......  26 - 27 AUgust 2016 
+		// Attempt to output the No. of motors bound to per filament
+		//real hannumber;
+		//float mtlen;
+		//mtlen = mt->length();
+		//hannumber = mt->getHandDensityAtEnd( MT_PLUS_END , mtlen  );
+		//printf(" hanumber: %2.6f \t %2.6f \n",mtlen, hannumber);	
+	   	}
+
+
+
+
+     
+}
+
+//===========================================================================
+
+
+//===========================================================================
+//=====  RECORD Statistics 10 => coordinates of al lcomplexes
+//===== Neha Khetan,  Coordinates of complexes
+//===== October 2015 
+
+
+void SIM::recordStatistics10()
+{
+  
+  static bool virgin = true;
+  if ( virgin ) {
+    virgin = false;
+    IOStat.writeString("%% recordStatistics10()\n");
+    IOStat.writeString("%% time, complex, x-y-z for complex\n");
+  }
+ 
+
+  Vecteur pos;
+	
+  for(Complex * cx = firstFreeComplex(); cx ; cx=cx->next() ) 
+	{    
+	Vecteur pos = cx->getPosition();
+
+	IOStat.writeReal32( simTime() );
+	IOStat.writeFormattingSpace(3);
+	
+	IOStat.writeReal32( cx->getName() );
+        IOStat.writeFormattingSpace(3);
+
+        IOStat.writeReal32Vect( DIM, pos );
+	IOStat.writeFormattingNewLine();
+	}
+
+
+  for(Complex * cx = firstBoundComplex(); cx ; cx=cx->next() ) 
+	{    
+	Vecteur pos = cx->getPosition();
+
+	IOStat.writeReal32( simTime() );
+	IOStat.writeFormattingSpace(3);
+	
+	IOStat.writeReal32( cx->getName() );
+        IOStat.writeFormattingSpace(3);
+
+        IOStat.writeReal32Vect( DIM, pos );
+	IOStat.writeFormattingNewLine();
+	}
+
+  for(Complex * cx = firstBridgeComplex(); cx ; cx=cx->next() ) 
+	{    
+	Vecteur pos = cx->getPosition();
+
+	IOStat.writeReal32( simTime() );
+	IOStat.writeFormattingSpace(3);
+	
+	IOStat.writeReal32( cx->getName() );
+        IOStat.writeFormattingSpace(3);
+
+        IOStat.writeReal32Vect( DIM, pos );
+	IOStat.writeFormattingNewLine();
+	}
+
+}
+      
+
+
+	//===========================================================================
+//Write the lengths and positions of the plus ends of MTS
+// Neha Khetan modified: April 2015: printing error in format of the output file in CA
+// 7 May 2016: include the coordinates of MT center
+
+void SIM::recordGhStatistics1()
+{
+	static bool virgin = true;
+	if ( virgin ) {
+		virgin = false;
+		IOGhStat.writeString("%% recordGhStatistics1() for info on the motors gh bound to the filament\n");
+		IOGhStat.writeString("%% time |  MTname | GH name | X(+) | Y(+) | X(-) | Y(-) | X(c) | Y(c) |   \n");
+	}
+	
+	  
+	// Neha Khetan ..........2 September 2016
+	/* Initial attempts to output the list of motors
+  	  Grafted * ghi;
+          //int mtnum[ 250000 ];     
+	 // int counter = 0;
+	  for( ghi = firstBoundGrafted(); ghi ; ghi=ghi->next() ){
+	      const Microtub * mt = ghi->getHand().getMT();
+	      int mtID  = mt->getName() ;      
+	      //mtnum[ counter ] = mtID;
+	      //counter += 1;
+	      printf("%2lf\t%d\n" , simTime() , mtID    ) ;
+	  }
+	 */
+
+
+
+	// Finding the MT to which the motor is bound to
+	Grafted * ghi;
+	for( ghi = firstBoundGrafted(); ghi ; ghi=ghi->next() ){
+		
+		IOGhStat.writeReal32( simTime());
+		
+		const Microtub * mt = ghi->getHand().getMT();		
+		IOGhStat.writeInt16( mt->getName());
+		IOGhStat.writeUInt16( ghi->getName()); 
+		IOGhStat.writeInt16( mt->length() );
+		IOGhStat.writeReal32( mt->whereEnd(MT_PLUS_END).XX);
+		IOGhStat.writeReal32( mt->whereEnd(MT_PLUS_END).YY);
+		IOGhStat.writeReal32( mt->whereEnd(MT_MINUS_END).XX);
+		IOGhStat.writeReal32(mt->whereEnd(MT_MINUS_END).YY);
+        
+		Vecteur mtCenter  = mt->getPosition();			  // Neha , to consider the MT center coordinates  
+		IOGhStat. writeReal32Vect( DIM , mtCenter);       // Neha , to consider the MT center coordinates    
+		IOGhStat.writeFormattingNewLine();		
+
+		
+	   	}
+
+}
+

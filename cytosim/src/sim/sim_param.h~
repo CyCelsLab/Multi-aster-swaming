@@ -1,0 +1,495 @@
+//RCS: $Id: sim_param.h,v 1.43 2005/05/04 15:10:29 clausen Exp $
+// This file contains all the parameters used in Cytosim
+// They are accessible through the global ParamSim variable MP.
+// a short description of each parameter and its default values
+// are given below, in the constructor of ParamSim.
+
+// ------------------------------------------------------------------
+// Neha Khetan,   October 2014: MTOC Motility - implement motor gradient
+// Neha Khetan, 2 March 2015: Emergence of motor gradient - initializing MTs in a gradient similar to mot grad
+// Neha Khetan, 1 August 2016 for exponential distribution of MT lengths: for Gliding Assay, instead of using mtinit way ( which is behaving WEIRD!!! )
+// Neha Khetan,   September 2016 for Gliding assay: Modify the detachment model - this is implemented if detachmodel is case 6, created in hand.cc NK, sept 2016
+// Neha Khetan   Dec, 2016 for detachment model to model the detachment of kinesin motors( scharrel models) or even the Eg5 like models as for aster clustering ( // NEHA KHETAN, Dec. 2016 for detachment model for kinesin like motors that detach befor stalling)
+// Neha Khetan,  11 Dec 2016, for Grafted localization - modifid the existing function incorportaing switch case options - extending teh existing one - to a add the cortex motors
+//                            Hence, modifying the parameter ghGradient , ghGradInfl , ghSlope to read in multiple values instead of just one. This will allow the user to specify the  value of each type.
+
+//TODO: separate initial configurations from physical parameters
+#ifndef SIM_PARAM_H
+#define SIM_PARAM_H
+
+#include "main.h"
+#include "types.h"
+#include "parameter_list.h"
+
+///this type is used for static hands, or other special conditions
+// should be equal to = ParamSim::MAX - 1
+static const int MAGIC_TYPE = 7;
+
+///The list of parameters for Cytosim
+class ParamSim : public ParameterList
+{
+  //all the parameters are described with the 'link' function below
+public:
+
+  //for simplicity, we allocate arrays with a common unique size:
+  const static int MAX = 8;
+
+  // ------------------very general:
+
+  int   debug;
+  int   magic;
+  //int   version;
+  char  fileinfo[STRING_SIZE];
+
+  //-------------------general:
+
+  int   dimension;
+  long  nbiter;
+  int   record;
+
+  real  dt;
+  real  km;
+  real  kT;
+  real  visc;
+  real  tolerance;
+
+  long  initcode;
+  real  initsize[MAX];
+  int   initfile;
+  int   autostop;
+  unsigned long randseed;
+
+  int   statistics[2];
+  int   ghstatistics[2];    // Neha Khetan, 3 September 2016: Parameter in the input file that will define the case and at what frequency to output. to output statistics of motors
+  //-------------------box:
+
+  real  boxsize[MAX];
+
+  real  boxkm,         boxkmratio;
+  int   boxshape;
+  real  boxedge;
+  real  boxinflate;
+  int   boxglue;
+  real  boxtime[MAX];
+  real  boxgradient[2];
+
+  //-------------------solids:
+
+  int   somax;
+  int   soshape;
+  int   soinit;
+  int   soptsmax;
+  int   soghmax[MAX];
+  real  sosize[MAX];
+
+  //-------------------nuclei:
+
+  int   numax;
+  int   nuinit;
+  int   nuptsmax;
+  int   numtmax;
+  int   nughmax[MAX];
+  real  nuradius;
+  real  nuvisc;
+  real  numobil;
+  int   nubundles;
+  int   numtperbundle;
+  real  nukm[3], nukmratio[3];  //nukmratio = nukm / km
+
+  //-------------------microtubules:
+
+  int   mtmax;
+  int   mtinit;
+  real  mtdiam;
+  real  mtrigid;
+  real  mtrodlength;
+  real  mtinitlength[MAX];
+  int   mtconfine;
+  int   mtsteric;
+  int   mtnucleation;
+  real  mtdimersize;
+
+#ifdef CUT_WITH_CURVATURE
+  real  mtcuterror;
+  real  mtcutmin;
+#endif
+
+  int   mtdynamic[3];      //applies to both-ends, the minus-end, the plus-end
+  real  mtcatgrowthrel[2]; //used only for mtdynamic = 3;
+  int   mtdelshort;
+  int   mtmobile;
+  real  mtdynspeed[4];
+  real  mtdyntrans[4];
+  real  mtdynforce,           mtdynstretch;   //mtdynstretch = mtdynforce / km
+  int   mtdynregulation;
+  real  mtplusdenratef;
+  int   mtinitstate[2];
+
+  real  mtminlength;
+  real  mtmaxlength;
+  real  mtmonlength;
+  
+  // ---------- Neha Khetan, 2 March 2015: initializing MTs in a gradient similar to mot grad
+  int   mtGradient;   // Neha Khetan, 2 March 2015: emergence of motor gradient - Initialization of MTs
+  int   mtGradSlope;  // Neha Khetan, 2 March 2015: emergence of motor gradient - Initialization of MTs
+  int   mtGradInfl;   // Neha Khetan, 2 March 2015: emergence of motor gradient - Initialization of MTs
+  int   mtModelType;  // Neha Khetan, 2 March 2015: emergence of motor gradient - Initialization of MTs
+  
+  // Neha Khetan, 1 August 2016 for exponential distribution of MT lengths: for Gliding Assay, instead of using mtinit way ( which is behaving WEIRD!!! )
+  double  mtlengthexpmean;    // Neha Khetan, 1 August 2016 for exponential distribution of MT lengths: for Gliding Assay, instead of using mtinit way ( which is behaving WEIRD!!! )   
+
+#ifdef PSEUDO_YZ
+  ///displayed distance between positions in y for 1D microtubules
+  real      mtpseudoY;
+#endif
+
+  //------------------asters:
+
+  int   asmax;
+  int   asinit;
+  int   asmtmax[MAX];
+  int   asghmax[MAX];
+  real  assize[2];
+  real  askm,               askmratio;   //askmratio = askm / km
+  float perAster;
+	
+  int  asdoublet; 		//boolean to switch on and off the doublet
+  real asdoubletarm[2]; //the lengths of the two arms of the doublet
+
+  //------------------chromosomes:
+
+  int   chmax;
+  int   chinit;
+  int   chmtmax[MAX];
+  int   cxinitPos;
+  //------------------grafted hands:
+
+  int   ghmax[MAX];
+  int   ghinit[MAX];
+  int   ghGradient[MAX];	//Neha Khetan modifying the existing ghGradient to ghGradient[MAX] and the same for ghGradientInfl and ghGradientSlope to enable specifying the values for each type.
+  int   ghGradSlope;
+  int   ghGradInfl;
+  int   ghModelType;
+
+  //------------------motor-complexes:
+
+  int   cxmax[MAX];
+  int   cxinit[MAX];
+  real  cxdiff[MAX],          cxdiff_dt[MAX];
+  real  cxlength[MAX];
+  int   cxhatype1[MAX];
+  int   cxhatype2[MAX];
+
+  //------------------hands:
+
+  int   hamaxtargets;
+  int   hamodel[MAX];
+
+  real  haattachrate[MAX],    haattachrate_dt[MAX];
+  real  haattachdist[MAX],    MHGL;
+
+  real  haspeed[MAX],         haspeed_dt[MAX], havarspeed_dt[MAX];
+  real  dthastep;
+
+  real  haforce[MAX];
+  real  charforce[MAX];       // NEHA KHETAN, Dec. 2016 for detachment model for kinesin like motors that detach befor stalling
+  real  hamaxstretch[MAX],    hamaxstretch_sq[MAX];
+  real  habreakstretch[MAX],  habreakstretch_sq[MAX];
+
+  int   hadetachmodel[MAX];
+  real  hadetachrate[MAX],    hadetachrate_dt[MAX];
+  int	hadetachkramerscale;
+  
+
+
+  real  haendattachdist[MAX];
+  real  haenddetachrate[MAX], haenddetachrate_dt[MAX];
+  int   haenddetach[MAX];
+
+  //------------------scalar fields:
+  real  ficellsize;
+  // CHAITANYA: Put parameters here.
+
+  //----------------------PRACTICAL
+  //real  mtcatagradient[2];                      //PREDOC
+  //---------------------END PRACTICAL
+  //---------------------CHAITANYA
+  real  mtresgradient[2];
+  real  mtcatagradient[2];
+  real  nuVect[3];  //initial position of nucleus (chromatin-bead)
+  real  asVect[3];  //initial position of aster
+  int   mtcaptMod;	//mode of MT capture- 1 = MTs reach the cartesian x-coordinate of the bead(nucleus)
+                    //                    2 = MTs reach the surface or more of the bead(nucleus) sphere
+                    //                    0 = no capture
+  int   fieldTyp[2];  //Type of gradient in scalarField.cc
+  real  stepDist;  //Dist from the edge of the nucleus to the stabiliziation field in terms of step gradient
+  real  expFrac;   //Fraction of the exponential part of fieldTyp == 8 (step + stretched-exp)
+
+  int   superMod;  //Mode of superposition of stabilization: 0: additive, 1: min-distance
+  real  sigmaGro;  //Rate of growth in the Verhulst Growth Equation
+  real	sigmaCap;  //Carrying capacity of the Verhulst Growth Equation
+  real	thetaHill; //Theta parameter of the Hill equation -CHAITANYA 2008-Apr-15
+  real  nHill;     //Multi-merization parameter of the Hill Eqn -CHAITANYA 2008-Apr-15
+  real  sigVals[4];//Parameters of modified SIGMOID gradient
+
+  real  arrayDist; //Distance between chains of bead arrays
+  int   nuclDistr; //Distribution of nucleation 0: random, 1: around chromosomes
+  int   pattorient;//Orientation of chromosome pattern
+  //---------------------END CHAITANYA
+
+  ParamSim() {
+
+    //----------------------general stuff:
+    //datafile is actually declared in ParameterList.
+    link("datafile",     datafile, sizeof(datafile), "data.in", "name of input parameter file");
+    link("fileinfo",     fileinfo, sizeof(fileinfo),      "\0", "string included in [result.out] as a comment to every frame", PARAM_ADVANCED);
+
+    //link("version",      &version,       "1");
+    link("debug",        &debug,         "0",      "debug flag",                                      PARAM_ADVANCED);
+    link("magic",        &magic,         "0",      "magic factor",                                      PARAM_ADVANCED);
+    link("dimension",    &dimension,     "0",      "dimension in space defined at compilation",       PARAM_CONSTANT+PARAM_ADVANCED);
+
+    link("nbiter",       &nbiter,        "1000",   "number of iterations performed by sim");
+    link("dt",           &dt,            "0.01",   "time step (s)");
+    link("record",       &record,        "100",    "number of frames recorded by sim");
+    link("km",           &km,            "100",    "elasticity of links (pN/um)");
+    link("kT",           &kT,            "0.0042", "Temperature * boltzman cst (pN*um)",              PARAM_ADVANCED);
+    link("visc",         &visc,          "0.05",   "fluid viscosity (pN s um^-2), water is 0.001 X.egg 0.02");
+    link("tolerance",    &tolerance,     "0.1",    "tolerance / thermal in solve (%)",                PARAM_ADVANCED);
+
+    link("initcode",     &initcode,      "0",      "major code for initial configuration",            PARAM_ADVANCED);
+    link("initsize",     initsize,  MAX, "0",      "size used to create initial configuration (um)");
+    link("initfile",     &initfile,      "0",      "if=1 load state from <start.in>",                 PARAM_ADVANCED);
+    link("randseed",     &randseed,      "0",      "random number generator seed");
+
+    link("autostop",     &autostop,      "0",      "stop simulation under certain criteria defined in sim_stats.cc", PARAM_ADVANCED);
+    link("statistics",   statistics, 2,  "0",      "if>0, [0]=type of statistics recorded in sim_stats.cc, [1]=rate of recording", PARAM_ADVANCED);
+    link("ghstatistics",   ghstatistics, 2,  "0",      "if>0, [0]=type of statistics recorded in sim_stats.cc, [1]=rate of recording", PARAM_ADVANCED);
+    //----------------------box:
+
+    link("boxkm",        &boxkm,         "100",    "rigidity of the confinement (pN/um)",             PARAM_ADVANCED);
+    link("boxshape",     &boxshape,      "1",      "shape of simulation space");
+    link("boxsize",      boxsize,   MAX, "0",      "size of simulation space, interpreted differently for each shape (um)");
+    link("boxinflate",   &boxinflate,    "0",      "size of box inflation (if>0) or deflation (if<0) (um)", PARAM_ADVANCED);
+    link("boxglue",      &boxglue,       "0",      "if=1 add friction to the box edges (DEVEL)",      PARAM_ADVANCED);
+    link("boxedge",      &boxedge,       "0.1",    "size of box's edge for initial configuration (um)");
+    link("boxtime",      boxtime,   MAX, "0",      "times for special events (s)",                    PARAM_ADVANCED);
+    link("boxgradient",  boxgradient, 2, "0  0",    "gradient of something: used in initcode=15, 16");
+
+
+
+    //----------------------solids:
+
+    link("somax",        &somax,         "0",      "number of solid objects");
+    link("soshape",      &soshape,       "0",      "shape of solids");
+    link("soinit",       &soinit,        "0",      "minor code to position solids in initial configuration");
+    link("soptsmax",     &soptsmax,      "1",      "number of points per solid");
+    link("soghmax",      soghmax,   MAX, "0",      "number of attached hands per solid, for each type of hand");
+    link("sosize",       sosize,    MAX, "1",      "dimensions of solids (um)");
+
+    //----------------------nuclei:
+
+    link("numax",        &numax,         "0",      "number of nuclei");
+    link("nuinit",       &nuinit,        "2",      "minor code defining nucleus initial position");
+    link("nuptsmax",     &nuptsmax,      "10",     "number of points per nucleus");
+    link("numtmax",      &numtmax,       "5",      "number of microtubules per nucleus");
+    link("nughmax",      nughmax,   MAX, "0",      "number of attached hands per nucleus");
+    link("nuradius",     &nuradius,      "2.0",    "radius of nucleus (um)");
+    link("nuvisc",       &nuvisc,        "0.05",   "viscosity of the nuclear membrane (unit)");
+    link("numobil",      &numobil,       "0.01",   "the mobility of the nucleus will be scaled by this factor");
+    link("nubundles",    &nubundles,     "0",      "number of bundles");
+    link("numtperbundle", &numtperbundle, "2",     "number of microtubules per bundle");
+    link("nukm",         nukm,        3, "10 1000 100", "rigidity of: nucleus-mt links, mt-mt bundle links, nuclear membrane-mt long links (pN/um)", PARAM_ADVANCED);
+
+    //----------------------microtubules:
+
+    link("mtmax",        &mtmax,         "0",      "number of microtubules (MT)");
+    link("mtinit",       &mtinit,        "0",      "minor code defining MTs initial position");
+    link("mtdiam",       &mtdiam,        "0.025",  "diameter of MTs (um)",                        PARAM_CONSTANT+PARAM_ADVANCED);
+    link("mtrodlength",  &mtrodlength,   "1",      "model sectionning length of MTs (um)");
+#ifdef CUT_WITH_CURVATURE
+    link("mtcuterror",   &mtcuterror,    "0.05",   "error threshold for MT cutting (um)",         PARAM_ADVANCED);
+    link("mtcutmin",     &mtcutmin,      "0.33",   "finer threshold for MT cutting (um)",         PARAM_ADVANCED);
+#endif
+    link("mtrigid",      &mtrigid,       "20",     "rigidity of MTs (pN um^2)");
+    link("mtconfine",    &mtconfine,     "0",      "if=1 confine MTs in box");
+    link("mtsteric",     &mtsteric,      "0",      "if=1 steric interactions for MTs (DEVEL)",    PARAM_INVISIBLE);
+    link("mtmobile",     &mtmobile,      "1",      "if=1 calculate MT's motion",                  PARAM_ADVANCED);
+    link("mtnucleation", &mtnucleation,  "1",      "code defining nucleation mode for MTs");
+    link("mtdimersize",  &mtdimersize,   "0.008",  "size of steps the hands take along the MT");
+#ifdef PSEUDO_YZ
+    link("mtpseudoY",    &mtpseudoY,     "0.1",    "Distance between MTs in Y for 1D display");
+#endif
+
+    //----------------------microtubule's dynamic
+
+    link("mtminlength",  &mtminlength,   "0.5",    "MT minimum length (um)");
+    link("mtinitlength", mtinitlength,   MAX, "1", "MT initial length (um)");
+    link("mtmaxlength",  &mtmaxlength,   "100",    "MT maximum length (um)");
+    link("mtmonlength",  &mtmonlength,   "1e6",    "total free tubulin measured in equivalent length of MT (um)");
+
+    link("mtdynamic",    mtdynamic,   3, "0 0 1",  "if>1  MT dynamic, [0]:model for both ends, [1]:minus-end [2]:plus-end");
+    link("mtcatgrowthrel",mtcatgrowthrel,2,"0 1.2e4","ordinate and slope of the mt catastrophe time - growth speed relation");
+    link("mtdelshort",   &mtdelshort,    "1",      "if=1, short MTs (length<mtminlength) are deleted; if=2, they are rescued");
+    link("mtdynforce",   &mtdynforce,    "0",      "if>0 : define the force needed to stall MT growth (pN)", PARAM_ADVANCED);
+    link("mtdynspeed",   mtdynspeed,  4, "0 0 0.16 -0.25", "grow speeds for the MT different states (um/s)");//-gro -shr +gro +shr
+    link("mtdyntrans",   mtdyntrans,  4, "0 0 0.03  0.01", "transition rates for the MT different states (1/s)");//[-cat -res +cat +res]
+    link("mtdynregulation", &mtdynregulation, "0", "code defining how the dynamic state is set by position", PARAM_ADVANCED);
+    link("mtplusdenratef",  &mtplusdenratef, "0.0", "Rate factor at plus end - mt growth rate is adjusted by this factor multiplied by hand density at mt plus end");
+    link("mtinitstate",  mtinitstate,  2, "1 0", "Initial state of minus and plus ends. 1 and 0 marks the two states.");
+
+
+    link("mtlengthexpmean" , &mtlengthexpmean , "1" , " to specify the exponential mean of MT length ");  // NK: 1 Aug, adding this to sim
+    link_deprecated( "mtconfined",     &mtconfine);
+    link_deprecated( "mtunstable",     mtdynamic);
+    link_deprecated( "mtgrowthforce",  &mtdynforce);
+    link_deprecated( "mtpolyspeed",    mtdynspeed);
+    link_deprecated( "mttransrate",    mtdyntrans);
+
+
+
+
+
+    //----------------------asters:
+
+    link("asmax",        &asmax,         "0",      "number of asters");
+    link("asinit",       &asinit,        "1",      "minor code defining aster initial positions: 1=center, 22=specific-loc asvect, 23: random");
+    link("asmtmax",      asmtmax,   MAX, "7",      "nb. of MTs per aster, for each aster");
+    link("asghmax",      asghmax,   MAX, "0",      "nb. of hands attached in center of aster, for each hand type");
+    link("assize",       assize,    2,   "0.5 0.2","sizes of the aster central region: links / hollow part (um)", PARAM_ADVANCED);
+    link("askm",         &askm,       "1000",      "rigidity of aster's central links (pN/um)",         PARAM_ADVANCED);
+	  
+    link("asdoublet",    &asdoublet,       "0", "switch on a doublet with only 2 microtubules diametrically opposite"); //CHAITANYA
+    link("asdoubletarm", asdoubletarm,  2, "5  5", "The arms of the doublet");           //CHAITANYA
+    link("perAster",   &perAster,		"0"," can take any float values, defines % of asters to be initialzed at the NE periphery");
+    //----------------------chromosomes:
+
+    link("chmax",        &chmax,         "0",      "number of chromosomes",                             PARAM_INVISIBLE);
+    link("chinit",       &chinit,        "0",      "minor code defining chromosomes initial positions", PARAM_INVISIBLE);
+    link("chmtmax",      chmtmax,   MAX, "2",      "number of MTs at each kinetochore",                 PARAM_INVISIBLE);
+
+    //----------------------grafted hands:
+    // Neha Khetan, October 2014: MTOC Motility - motor gradient
+    link("ghmax",         ghmax,          MAX, "0" ,      "number of grafted hands for each type");
+    link("ghinit",        ghinit,         MAX, "0" ,      "minor code defining grafted initial position, for each type");
+    link("ghGradient",    ghGradient,     MAX, "0" ,		"bool for motor asymmetry, 0= uniform, 1 = gradient");
+    link("ghGradSlope",	  &ghGradSlope,   "5",       " value that sets the steepness of the sigmoid gradient for motor fun");
+    link("ghGradInfl",    &ghGradInfl,    "5",        " Inflection point of the gradient, considered from the center of the cell");
+    link("ghModelType",   &ghModelType,   "0",  " Type of motor gradient function to be implemented");
+
+    // Neha Khetan, March 2015 : Emergence of motor gradient
+    // for MT Gradient
+    link("mtGradient",   &mtGradient,  "0",			"bool for motor asymmetry, 0= uniform, 1 = gradient");
+    link("mtGradSlope",	 &mtGradSlope,  "5",       " value that sets the steepness of the sigmoid gradient for motor fun");
+    link("mtGradInfl",   &mtGradInfl,   "5",  " Inflection point of the gradient, considered from the center of the cell");
+    link("mtModelType",  &mtModelType,   "0",  " Type of motor gradient function to be implemented");
+ 
+    //----------------------complexes:
+
+    link("cxmax",        cxmax,     MAX, "0",       "number of motor complexes");
+    link("cxinit",       cxinit,    MAX, "0",       "minor code defining ccomplex initial positions");
+    link("cxdiff",       cxdiff,    MAX, "0",       "free complex diffusion coefficient (um^2/s)");
+    link("cxlength",     cxlength,  MAX, "0",       "complex backbone resting length (um)",             PARAM_ADVANCED);
+    link("cxhatype1",    cxhatype1, MAX, "0 1 2 3", "type of complex first hand");
+    link("cxhatype2",    cxhatype2, MAX, "0 1 2 3", "type of complex second hand");
+
+    link_deprecated( "momax",     cxmax);
+    link_deprecated( "modiff",    cxdiff);
+    link_deprecated( "mohatype1", cxhatype1);
+    link_deprecated( "mohatype2", cxhatype2);
+
+
+    //-----------------------hands:
+
+    link("hamodel",        hamodel,         MAX, "0", "motion model: (0)never goes backward; (1)can go backward under strong reverse load");
+
+    link("haattachrate",   haattachrate,    MAX, "0", "hand attachement rate (1/s)");
+    link("haattachdist",   haattachdist,    MAX, "0", "hand maximum binding distance (um)");
+
+    link("haspeed",        haspeed,         MAX, "0", "hand maximum speed, ie. speed under zero load (um/s)");
+    link("dthastep",       &dthastep,        "0.004",  "time for one step of hand (8nm stepsize)");
+    link("haforce",        haforce,         MAX, "4", "hand maximum force, ie. stall force (pN)");
+	link("charforce",      charforce,       MAX, "4", "Characteristic detachment force (pN)");	// NEHA KHETAN, Dec. 2016 for detachment model for kinesin like motors that detach befor stalling
+
+    link("hadetachrate",   hadetachrate,    MAX, "0", "hand detachment rate (1/s)");
+    link("hadetachmodel",  hadetachmodel,   MAX, "0", "detach. model: (0) independ. of force F (1) immediate at F_max (2) off_rate=exp(2*F/F_max)");
+
+    link("haendattachdist",haendattachdist, MAX, "0", "if>0 restrict binding to a section near the plus-end (um)");
+    link("haenddetach",    haenddetach,     MAX, "0", "if=1 detach immediately at MT ends (overrules haenddetachrate)");
+    link("haenddetachrate",haenddetachrate, MAX, "0", "hand detachment rate when they are at MT ends (1/s)");
+	
+    link("hamaxtargets"        ,   &hamaxtargets,        "1", "max nb. of try for attachments of hands per time step",     PARAM_ADVANCED);
+    link("hadetachkramerscale" ,   &hadetachkramerscale ,  "1" , "scaling factor for kramer dependent detachment, hadetachmodel case 6 ");  // Neha Khetan, Sept 2016 for Gliding assay: Modify the detachment model - this is implemented if detachmodel is case 6, created in hand.cc NK, sept 2016
+
+    link_deprecated("haspecial",       hamodel);
+    link_deprecated("hagrablength",    haattachdist);
+    link_deprecated("hamaxforce",      haforce);
+    link_deprecated("haattachfreq",    haattachrate);
+    link_deprecated("hadetachfreq",    hadetachrate);
+    link_deprecated("haenddetachfreq", haenddetachrate);
+
+    //------------------scalar fields:
+    // CHAITANYA: Put default parameter value here.
+    link("ficellsize",     &ficellsize, "1",        "Scalar field size of one cell in um");
+
+
+    //-----------------------practical:
+
+    //link( "mtcatagradient", mtcatagradient,  2, "0 0.1", "predoc2004: gradient of catastrophes", PARAM_ADVANCED);        //PREDOC
+
+    //-----------------------CHAITANYA- gradient of stabilization and position of chromatin-bead
+
+    link( "mtresgradient", mtresgradient,  2, "0.0048 0.012", "Gradient of rescues", PARAM_ADVANCED);           //CHAITANYA
+    link( "mtcatagradient",mtcatagradient, 2, "0.048 0.03", "Gradient of catastrophes", PARAM_ADVANCED);       //CHAITANYA
+    link( "nuVect",		   nuVect,		   3, "0 0 0", "Initial position of a nucleus", PARAM_ADVANCED); //CHAITANYA
+    link( "asVect",		   asVect,		   3, "0 0 0", "Initial position of aster", PARAM_ADVANCED);     //CHAITANYA
+    link( "mtcaptMod",	   &mtcaptMod,     "0",     "Mode of capture of MTs by beads(nucleus)",  PARAM_ADVANCED); //CHAITANYA
+    link( "fieldTyp",     fieldTyp,        2,  "0  0",     "Gradient type of stabilization field; bool:writeField into txt file",      PARAM_ADVANCED); //CHAITANYA
+    link( "stepDist",     &stepDist,     "1",     "Dist from the edge of the nucleus to the end of stabilization zone in step gradient[FIELD TYP== 3]",  PARAM_ADVANCED); //CHAITANYA
+    link( "expFrac",     &expFrac,     "2",     "Fraction of the exponential [FIELD TYP== 8]",  PARAM_ADVANCED); //CHAITANYA Aug-2008
+
+    link( "sigmaGro",     &sigmaGro,     "0.5",   "Growth rate of the Sigma-gradient [FIELD TYP== 6] inverse-Verhulst growth eqn.",  PARAM_ADVANCED); //CHAITANYA
+    link( "sigmaCap",     &sigmaCap,     "1000",  "Carrying capacity Sigma-gradient [FIELD TYP== 6] inverse-Verhulst growth eqn.",  PARAM_ADVANCED); //CHAITANYA
+    link( "thetaHill",    &thetaHill,     "10",  "Hill Reacn- theta [FIELD TYP== 10]",  PARAM_ADVANCED); //CHAITANYA
+    link( "nHill",     	  &nHill,        "4",  "Hill Reacn- n [FIELD TYP== 10]",  PARAM_ADVANCED); //CHAITANYA
+    link( "sigVals",      sigVals,      4,  "10 0.1 0.1 1",  "Parameters modidified Sigmoid curve- [0]cutoff,[1]base-value,[2]slope, [3]peakval [FIELD TYP== 12]",  PARAM_ADVANCED); //CHAITANYA
+
+    link( "superMod",     &superMod,     "0",     "Mode of superposition of stab_grad- 0: additive, 1:min",  PARAM_ADVANCED); //CHAITANYA
+    link( "arrayDist",    &arrayDist,    "10", 	  "Distance between 2 chains of y-axis aligned chromatin beads (must be less than 2*boxsize[0]", PARAM_ADVANCED);//CHAITANYA
+    link( "nuclDistr",    &nuclDistr,    "0",     "Set the nucleation to be 0:random, 1: around chromsomes", PARAM_ADVANCED);//CHAITANYA
+    link( "pattorient",    &pattorient,   "0",     "Set the orientation of chromosome pattern (initcode=80)", PARAM_ADVANCED);//orientation horiz=0,vert=1
+
+  }
+
+
+  //------------------------------------------------
+  ///dummy destructor
+  virtual ~ParamSim() { }
+
+  /// 1 - exp( -k*T ) = the probability in time T of observing one or more events happening at rate k
+  static real integratedProbability( const real rate, const real T ) {
+    assert( rate >= 0);
+    return 1. - exp( -rate * T );
+  }
+
+  /// contains operation to update from old parameter versions
+  void compatibilityOperations();
+
+  /// issues warnings for certain combinations of parameter values
+  void issueWarnings();
+
+  /// calculate variable derived from the parameters
+  /** for example, we have haspeed_dt = haspeed * dt */
+  void computeDerivedValues();
+
+  /// print some key parameter values like speed, etc.
+  void printSome();
+
+  /// calls the three above functions
+  void massageParameters();
+
+};
+
+extern ParamSim MP;
+
+#endif

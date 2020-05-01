@@ -1,0 +1,443 @@
+//RCS: $Id: aster.cc,v 2.21 2005/04/22 12:28:19 nedelec Exp $
+//==============================aster.cc=============================
+
+#include "aster.h"
+#include "sim.h"
+#include "exceptions.h"
+#include "iowrapper.h"
+#include "point_exact.h"
+#include "point_interpolated.h"
+
+//===================================================================
+
+
+void Aster::asterConstructorBase(const MTEnd focus)
+{
+  asMTmax   = 0;
+  asFocus   = focus;
+  asSolid   = 0;
+  asRadius  = MP.assize[0];
+}
+
+//===================================================================
+
+Aster::Aster( int nbMTs, Vecteur where, MTEnd focus )
+{
+  asterConstructorBase(focus);
+  setSolidAndClamps(nbMTs);
+  setMicrotubs(nbMTs);
+  transformPosition( Transformation::randomRotation() );
+  translatePosition( where );
+  addGrafted();
+}
+
+//-------------------------------------------------------------------
+
+
+Aster::Aster(MTEnd focus)
+{
+  unsigned long ouf = 0;
+  
+
+  int mtmax;
+  if ( focus == MT_MINUS_END ) {
+    //the number of microtubules can be defined for the first MAX asters:
+    mtmax = sim.nbAster();
+    if ( mtmax > MP.nbValuesRead("asmtmax") )
+      mtmax = MP.nbValuesRead("asmtmax");
+    if ( mtmax < 1 )
+      mtmax = 1;
+    mtmax = MP.asmtmax[ mtmax-1 ];
+  } else {
+    mtmax = MP.chmtmax[ 0 ];
+  }
+
+  asterConstructorBase(focus);
+  setSolidAndClamps(mtmax);
+  setMicrotubs(mtmax);
+  Vecteur place = VZERO;
+
+  do {
+
+    translatePosition( -place );
+    transformPosition( Transformation::randomRotation() );
+    //either place the aster at a specific location from data.in::MP.asVect, at random location or at origin
+    if (MP.asinit == 22){
+		place = initPosition( Microtub::space, MP.asinit, MP.asVect ); //Only option asinit==22 allows specification of precise 3D location
+	}	
+	else
+			place = initPosition( Microtub::space, MP.asinit );
+	
+    translatePosition( place );
+    if (++ouf>MAX_TRIALS_BEFORE_STUCK)
+      throw StuckException("reached MAX_TRIALS_BEFORE_STUCK in createAster");
+
+  } while ( insidePosition() < 3 * mtmax );
+  addGrafted();
+}
+
+
+//-------------------------------------------------------------------
+Aster::~Aster()
+{
+  MSG(13, "Aster::destructor a%i\n", name );
+  if ( asSolid ) delete( asSolid );
+}
+
+
+
+//===================================================================
+void Aster::setMicrotubs(int nbMTs)
+{
+	if (MP.asdoublet == 0) 
+	{ asMTmax = nbMTs;}
+	else{ asMTmax = 2; }
+  //MSG("setPosition for aster %lx\n", name );
+  Vecteur     dir, place;
+
+  for( int ii = 0; ii < asMTmax; ++ii ) {
+	  place = asSolid->whereP( asClamp[ii].clamp1 );
+	  dir   = asSolid->whereP( asClamp[ii].clamp2 ) - place;
+	  if ( hasMicrotub(ii) ) {
+		  getMicrotub(ii) -> setStraight( place, dir, asFocus );
+	  } else {
+		  if(MP.asdoublet == 0){
+			  real length = Microtub::initLength();
+			  registerMicrotub( new Microtub( place, dir, length, asFocus ), ii );
+		  }else {
+			  real length = MP.asdoubletarm[ii];
+			  registerMicrotub( new Microtub( place, dir, length, asFocus ), ii );
+		  }
+	  }
+  }
+	
+}
+
+//===================================================================
+real Aster::getAnisotropy()
+{
+	real asAniso, length1, length2;
+	float angl, x1, y1;
+	Vecteur asPos;
+	
+	//This calculates the anisotropy of an aster	
+	for( int ii = 0; ii < asMTmax; ++ii ) {
+
+
+		asPos  = getPosition(); //position of the aster
+		
+		//normalize minus end position with respect to the position of the aster
+		x1 = getMicrotub(ii)->whereEnd(MT_MINUS_END).XX - asPos[0];
+		y1 = getMicrotub(ii)->whereEnd(MT_MINUS_END).YY - asPos[1];
+		
+		
+		angl = atan2(  y1, x1 ); //*180/M_PI;//ANGLE = ATAN2( YY , XX)
+		//printf("angle: %f, length: %f\n", angl, getMicrotub(ii)->length());
+		
+		if(  fabs(angl) <= M_PI/2  ){
+			length1 += getMicrotub(ii)->length();
+			
+		}else {
+			length2 += getMicrotub(ii)->length();
+		}
+		
+	}
+	asAniso = (length2-length1)/(length1+length2);
+	
+	printf("l1: %f, l2: %f, aniso: %f\n", length1, length2, asAniso );
+	
+	return asAniso;
+
+}
+
+//===================================================================
+real Aster::getAsymmetry()
+{
+	real asAssy, length1, length2;
+	float angl, x1, y1;
+	Vecteur asPos;
+	
+	//This calculates the anisotropy of an aster	
+	for( int ii = 0; ii < asMTmax; ++ii ) {
+		
+		
+		asPos  = getPosition(); //position of the aster
+		
+		//normalize minus end position with respect to the position of the aster
+		x1 = getMicrotub(ii)->whereEnd(MT_MINUS_END).XX - asPos[0];
+		y1 = getMicrotub(ii)->whereEnd(MT_MINUS_END).YY - asPos[1];
+		
+		
+		//angl = atan2(  y1, x1 ) *180/M_PI;//ANGLE = ATAN2( YY , XX)
+		angl = atan2(  y1, x1 ) ;//*180/M_PI;//ANGLE = ATAN2( YY , XX)
+		
+		
+		//determining the two halves of the aster (arbitrary geometry with plane of symmetry perpendicular to x-axis
+		//printf("@aster.cc, i: %i, angle: %f, abs_angle: %f\n", ii, angl, fabs((double)angl));
+		if(  fabs(angl) < M_PI/2  ){
+			length1 += getMicrotub(ii)->length();
+		}else {
+			length2 += getMicrotub(ii)->length();
+		}
+		
+	}
+	
+	asAssy = length2/length1;
+
+	printf("l1: %f, l2: %f, asy: %f\n", length1, length2, asAssy );
+
+	return asAssy;
+	
+}
+
+//===================================================================
+int Aster::deregisterMicrotub(Microtub * old_mt)
+{
+  //we remove the Microtub which has disapeared, getting the spot index
+  int indx = MicrotubOrganizer::deregisterMicrotub( old_mt );
+  assert(( indx >= 0 ) && ( indx < asMTmax ));
+  assert( hasMicrotub(indx) == false );
+
+  //TODO: we could have a finite nucleation rate on asters.
+  //here we immediately re-create a new Microtub on the same spot:
+  Vecteur place = asSolid->whereP( asClamp[indx].clamp1 );
+  Vecteur dir   = asSolid->whereP( asClamp[indx].clamp2 ) - place;
+  //CHAITANYA: HERE we could impose the condition of finite nucleation rate
+  // if( rand-uniform > rate )... etc
+  Microtub * new_mt = new Microtub( place, dir, MP.mtminlength, asFocus );
+
+  //register the new Tube in the spot where the old one was attached:
+  registerMicrotub( new_mt, indx );
+  //also link the MT into the simulation
+  if ( isLinked() ) sim.link( new_mt );
+  return indx;
+}
+
+
+//===================================================================
+
+
+#include "pointsonsphere.h"
+
+void Aster::setSolidAndClamps(int nbmts)
+{
+  assert( asRadius > 0 );
+
+  if ( asSolid == 0 ) {
+    asSolid = new Solid();
+    asClamp.setSize( nbmts );
+
+#if ( DIM == 3 )
+    Vecteur x;
+    PointsOnSphere sphere( nbmts );
+    if ( MP.assize[1] < EPSILON ) {
+      int center = asSolid -> addPoint( VZERO );
+      for( int ii = 0; ii < nbmts; ++ii ) {
+        sphere.copyCoordinatesOfPoint( x, ii );
+        asClamp[ ii ].set( center, asSolid->addPoint(asRadius*x), asRadius );
+      }
+    } else {
+      real radIn = MP.assize[1];
+      real radOut = MP.assize[0]+MP.assize[1];
+      for(int ii = 0; ii < nbmts; ++ii ) {
+        sphere.copyCoordinatesOfPoint( x, ii );
+        int pt1 = asSolid->addPoint(radIn*x);
+        int pt2 = asSolid->addPoint(radOut*x);
+        asClamp[ ii ].set( pt1, pt2, asRadius );
+      }
+    }
+
+#elif ( DIM == 2 )
+
+    real ang = PI;
+    Vecteur x;
+
+    if ( MP.assize[1] < EPSILON ) {
+      int pt1 = asSolid -> addPoint( VZERO );
+      for(int ii = 0; ii < nbmts; ++ii ) {
+        x.set( cos(ang), sin(ang), 0);
+        int pt2 = asSolid->addPoint( asRadius*x );
+        asClamp[ ii ].set( pt1, pt2, asRadius );
+		ang  += 2 * PI / real(nbmts);
+        
+      }
+    } else {
+    
+       
+      real radIn  = MP.assize[1];
+      real radOut = MP.assize[0] + MP.assize[1];
+      for(int ii = 0; ii < nbmts; ++ii ) {
+        x.set( cos(ang), sin(ang), 0);
+
+        int pt1 = asSolid->addPoint(radIn*x  );
+        int pt2 = asSolid->addPoint(radOut*x);
+		
+		
+        asClamp[ ii ].set( pt1, pt2, asRadius );
+      
+        ang  += 2 * PI / real(nbmts);   
+       //ang  +=  PI / real(nbmts);
+      }
+    }
+
+#elif ( DIM == 1 )
+
+    int center = asSolid -> addPoint( VZERO );
+    int left   = asSolid -> addPoint( Vecteur(-asRadius, 0, 0) );
+    int right  = asSolid -> addPoint( Vecteur(+asRadius, 0, 0) );
+
+    for(int ii = 0; ii < nbmts; ++ii ) {
+      asClamp[ ii ].set( center,  ( ii % 2 ) ? left : right, asRadius );
+    }
+
+#endif
+
+    asSolid -> fixShape();
+  }
+}
+
+//-------------------------------------------------------------------
+void Aster::translatePosition( const Vecteur & T )
+{
+  asSolid->translatePosition( T );
+  MicrotubOrganizer::translatePosition( T );
+}
+
+//-------------------------------------------------------------------
+void Aster::transformPosition( const Transformation & T )
+{
+  asSolid->transformPosition( T );
+  MicrotubOrganizer::transformPosition( T );
+}
+
+//-------------------------------------------------------------------
+void Aster::moduloPosition()
+{
+  asSolid -> moduloPositionG();
+  MicrotubOrganizer::moduloPosition();
+}
+
+//-------------------------------------------------------------------
+int Aster::insidePosition( const Space * s ) const
+{
+  return MicrotubOrganizer::insidePosition(s) + asSolid ->insidePosition(s);
+}
+
+//===================================================================
+bool Aster::setClamp1( PointExact * pta, PointExact * ptb, const int indx ) const
+{
+  assert(( indx >= 0 ) && ( indx < asMTmax ));
+
+  if ( hasMicrotub(indx) ) {
+    //this is a clamp from a point in the solid, and the asFocus-end of the Microtub
+    pta->setTo( asSolid, asClamp[indx].clamp1 );
+    ptb->setTo( getMicrotub(indx), ( asFocus == MT_MINUS_END )? 0 : getMicrotub(indx)->lastPoint() );
+    return true;
+  } else {
+    return false;
+  }
+}
+
+
+//-------------------------------------------------------------------
+bool Aster::setClamp2( PointExact * pta, PointInterpolated * ptb, const int indx ) const
+{
+  assert(( indx >= 0 ) && ( indx < asMTmax ));
+
+  Microtub * mt = getMicrotub(indx);
+  if ( mt ) {
+    pta->setTo( asSolid, asClamp[indx].clamp2 );
+    if ( asClamp[indx].clampA > mt->length() )
+      mt -> setInterpolation( ptb, asFocus==MT_PLUS_END ? MT_MINUS_END : MT_PLUS_END );
+    else
+      mt -> setInterpolation( ptb, asClamp[indx].clampA, asFocus );
+    return true;
+  } else {
+    return false;
+  }
+}
+
+//-------------------------------------------------------------------
+void Aster::addGrafted()
+{
+  Vecteur w, g = asSolid -> calculatePosition();
+
+  for( int ty=0; ty < MP.MAX; ++ty)
+    for( int n=0; n < MP.asghmax[ty]; ++n ) {
+      //fprintf(stderr, "add grafted %i\n", n);
+      w = g + Vecteur::randSphere(asRadius);
+      asSolid -> addPointWithGrafted( w, ty );
+    }
+  asSolid -> fixShape();
+}
+
+
+//===================================================================
+//===================================================================
+//:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+int Aster::looksWrong() const
+{
+  if ( asMTmax != maxNbMicrotub() ) return 1;
+  return NO_ERROR;
+}
+
+
+//-------------------------------------------------------------------
+void Aster::write()
+{
+  assert( name > 0 );
+  IO.writeRecordTag("as");
+  IO.writeUInt16( name );
+  IO.writeReal32( asRadius );
+  IO.writeUInt8( asFocus );
+  //compatibility with former version, where asters had no solid:
+  IO.writeUInt16( asSolid ? asSolid->getName():0 );
+  IO.writeUInt16( asMTmax );
+  assert( asMTmax == maxNbMicrotub() );
+
+  for( int ii = 0; ii < asMTmax; ++ii ) {
+    Microtub * mt = getMicrotub(ii);
+    IO.writeUInt16( mt ? mt -> getName() : 0 );
+    IO.writeUInt16( asClamp[ ii ].clamp1 );
+    IO.writeUInt16( asClamp[ ii ].clamp2 );
+  }
+}
+
+
+//-------------------------------------------------------------------
+void Aster::read()
+{
+  setFlag( sim.frameInBuffer() );
+  MSG(80, "Aster::read( a%lx )\n", name);
+  deregisterAllMicrotubs();
+
+  try {
+
+    //read the radius, and focus
+    real radius = IO.readReal32();
+    asterConstructorBase( MTEnd(IO.readUInt8()) );
+    if ( radius > 0 ) asRadius = radius;
+
+    if ( IO.getFileFormat() > 16 )
+      asSolid = sim.readSolidName();
+    else
+      asSolid = 0;
+
+    //read the number of attached microtubs:
+    asMTmax = IO.readUInt16();
+    asClamp.setSize( asMTmax );
+
+    for( int ii = 0; ii < asMTmax; ++ii ) {
+      registerMicrotub( sim.readMicrotubName(), ii );
+      if ( IO.getFileFormat() > 16 ) {
+        asClamp[ ii ].clamp1 = IO.readUInt16();
+        asClamp[ ii ].clamp2 = IO.readUInt16();
+        asClamp[ ii ].clampA = asRadius;
+      }
+    }
+
+  } catch( IOException e ) {
+    e.addBeforeMessage("Aster::read : ");
+    throw e;
+  }
+}

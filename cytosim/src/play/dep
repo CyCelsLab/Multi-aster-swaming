@@ -1,0 +1,73 @@
+glextensions.o: glextensions.cc ../base/glut.h glextensions.h \
+ ../base/types.h ../base/vecteur.h ../base/main.h ../base/types.h \
+ ../base/assert_macro.h ../base/smath.h ../base/vecteur1.h \
+ ../base/vecteurbase.h ../base/random.h ../base/vecteur2.h \
+ ../base/vecteur3.h ../base/iomessages.h
+globjects3d.o: globjects3d.cc globjects3d.h ../base/glut.h \
+ ../base/types.h ../base/smath.h ../base/types.h ../base/iomessages.h \
+ glextensions.h ../base/vecteur.h ../base/main.h ../base/assert_macro.h \
+ ../base/smath.h ../base/vecteur1.h ../base/vecteurbase.h \
+ ../base/random.h ../base/vecteur2.h ../base/vecteur3.h play_param.h \
+ ../base/parameter_list.h ../base/parameter_typed.h ../base/parameter.h \
+ ../base/iomessages.h ../sim/sim_param.h ../base/main.h \
+ ../base/iowrapper.h ../base/vecteur3.h ../base/quaternion.h
+offscreen.o: offscreen.cc offscreen.h ../base/iomessages.h \
+ offscreen_linux.cc
+offscreen_cygwin.o: offscreen_cygwin.cc
+offscreen_linux.o: offscreen_linux.cc
+offscreen_mac.o: offscreen_mac.cc
+play.o: play.cc play.h ../base/types.h ../sim/sim.h \
+ ../sim/microtub_list.h ../sim/object_list.h ../sim/object.h \
+ ../base/node.h ../base/types.h ../base/assert_macro.h ../base/vecteur.h \
+ ../base/main.h ../base/smath.h ../base/vecteur1.h ../base/vecteurbase.h \
+ ../base/random.h ../base/vecteur2.h ../base/vecteur3.h \
+ ../base/transformation.h ../base/matrix2.h ../base/matrixbase.h \
+ ../base/space.h ../base/vecteur.h ../base/node_list.h ../base/node.h \
+ ../base/name_list.h ../base/iomessages.h ../sim/microtub.h \
+ ../base/array.h ../sim/fiber.h ../sim/simobject.h ../sim/pointset.h \
+ ../base/assert_macro.h ../sim/point_microtub.h \
+ ../sim/point_interpolated.h ../sim/sim_param.h ../base/main.h \
+ ../base/parameter_list.h ../base/parameter_typed.h ../base/parameter.h \
+ ../sim/lattice.h ../base/map.h ../base/iowrapper.h ../sim/grafted_list.h \
+ ../sim/grafted.h ../sim/hand.h ../sim/point_exact.h \
+ ../sim/complex_list.h ../sim/complex.h ../sim/aster_list.h \
+ ../sim/aster.h ../sim/microtub_organizer.h ../sim/solid_list.h \
+ ../sim/solid.h ../sim/nucleus_list.h ../base/name_list.h \
+ ../sim/nucleus.h ../base/iowrapper.h ../sim/scalar_field.h \
+ ../base/glut.h ../base/quaternion.h ../base/vecteur3.h reader.h \
+ play_param.h ../sim/sim_param.h ../base/exceptions.h offscreen.h \
+ glextensions.h play_draw1.cc play_draw2.cc play_draw3.cc globjects3d.h \
+ play_disp.cc play_glut.cc play_keys.cc play_mouse.cc play_menus.cc
+play_disp.o: play_disp.cc
+play_draw1.o: play_draw1.cc
+play_draw2.o: play_draw2.cc
+play_draw3.o: play_draw3.cc globjects3d.h ../base/glut.h ../base/types.h
+play_glut.o: play_glut.cc
+play_keys.o: play_keys.cc
+play_menus.o: play_menus.cc
+play_mouse.o: play_mouse.cc
+play_param.o: play_param.cc play_param.h ../base/parameter_list.h \
+ ../base/types.h ../base/parameter_typed.h ../base/parameter.h \
+ ../base/iomessages.h ../sim/sim_param.h ../base/main.h \
+ ../base/assert_macro.h ../base/smath.h ../base/types.h \
+ ../base/iowrapper.h ../base/vecteur3.h ../base/vecteurbase.h \
+ ../base/random.h ../base/quaternion.h
+reader.o: reader.cc reader.h ../sim/sim.h ../sim/microtub_list.h \
+ ../sim/object_list.h ../sim/object.h ../base/node.h ../base/types.h \
+ ../base/assert_macro.h ../base/vecteur.h ../base/main.h ../base/smath.h \
+ ../base/vecteur1.h ../base/vecteurbase.h ../base/random.h \
+ ../base/vecteur2.h ../base/vecteur3.h ../base/transformation.h \
+ ../base/matrix2.h ../base/matrixbase.h ../base/space.h ../base/vecteur.h \
+ ../base/node_list.h ../base/node.h ../base/name_list.h \
+ ../base/iomessages.h ../sim/microtub.h ../base/array.h ../sim/fiber.h \
+ ../sim/simobject.h ../base/types.h ../sim/pointset.h \
+ ../base/assert_macro.h ../sim/point_microtub.h \
+ ../sim/point_interpolated.h ../sim/sim_param.h ../base/main.h \
+ ../base/parameter_list.h ../base/parameter_typed.h ../base/parameter.h \
+ ../sim/lattice.h ../base/map.h ../base/iowrapper.h ../sim/grafted_list.h \
+ ../sim/grafted.h ../sim/hand.h ../sim/point_exact.h \
+ ../sim/complex_list.h ../sim/complex.h ../sim/aster_list.h \
+ ../sim/aster.h ../sim/microtub_organizer.h ../sim/solid_list.h \
+ ../sim/solid.h ../sim/nucleus_list.h ../base/name_list.h \
+ ../sim/nucleus.h ../base/iowrapper.h ../sim/scalar_field.h \
+ ../base/exceptions.h

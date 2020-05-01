@@ -1,0 +1,820 @@
+
+//RCS: $Id: microtub.cc,v 2.66 2005/04/22 12:13:06 nedelec Exp $
+// modified by Chaitanya Athale 08/02/2006
+//-------------------------------microtub.cc----------------------------------
+//                contains the basic methods for the class
+//----------------------------------------------------------------------------
+
+#include "assert_macro.h"
+#include "microtub.h"
+#include "hand.h"
+#include "sim.h"
+#include "exceptions.h"
+#include "iowrapper.h"
+#include "microtub_organizer.h"
+
+///amount of free tubulin
+real     Microtub::tubulin = 0;
+
+///space for the microtubules
+Space *  Microtub::space = 0;
+
+#ifdef PSEUDO_YZ
+Array<int> Microtub::pseudoOccupancyArray;
+#endif
+
+//============================================================================
+
+//microtubConstructorBase() should be called only by the constructors
+void Microtub::microtubConstructorBase()
+{
+  reset();
+#ifdef PSEUDO_YZ
+  // place in display array
+  setPseudoYZ();
+#endif
+}
+
+//----------------------------------------------------------------------------
+void Microtub::reset()
+{
+  Fiber::reset();
+  mtColor           = 0;
+  mtOrganizer       = 0;
+  mtboxglue_grafted = 0;
+
+  mtStateChange[ MT_NOT_END   ] = sim.iterationCnt();     //this is used for total MT life time.
+  mtStateChange[ MT_PLUS_END  ] = sim.iterationCnt();
+  mtStateChange[ MT_MINUS_END ] = sim.iterationCnt();
+
+  mtStateChangeWhere[ MT_NOT_END   ] = VZERO;             //this is used for total MT life time.
+  mtStateChangeWhere[ MT_PLUS_END  ] = VZERO;
+  mtStateChangeWhere[ MT_MINUS_END ] = VZERO;
+
+  mtState[ MT_NOT_END   ]  = MT_GROWING;   //this value of mtState[] is not used
+
+  mtState[ MT_MINUS_END ] = ( MP.mtinitstate[0] ? MT_SHRINKING : MT_GROWING );
+  mtState[ MT_PLUS_END  ] = ( MP.mtinitstate[1] ? MT_SHRINKING : MT_GROWING );
+}
+
+
+//========================================================================
+//  - - - - - - - - - - - - - - CONSTRUCTORS - - - - - - - - - - - - - - -
+//========================================================================
+
+//set microtubules as a line, starting at w, of length alen
+Microtub::Microtub(const Vecteur w, const Vecteur dir, const real len, const MTEnd end)
+{
+  microtubConstructorBase();
+  setStraight(w, dir, len, end);
+}
+
+//----------------------------------------------------------------------------
+//creates a new microtubule with a center of gravity at position w
+Microtub::Microtub(const Vecteur w)
+{
+  microtubConstructorBase();
+
+  Vecteur dir = initDirection();
+  real len    = initLength();
+  setStraight(w, dir, len, MT_ORIGIN);
+}
+
+//----------------------------------------------------------------------------
+//creates a microtubule according to MP.mtinit
+Microtub::Microtub(int)
+{
+  microtubConstructorBase();
+
+  Vecteur place, dir;
+  real len;
+  MTEnd e = MT_ORIGIN;
+
+  unsigned long ouf=0;
+
+  do {
+
+    place = initPosition( space, digit(MP.mtinit,1));
+    dir   = initDirection();
+    len   = initLength();
+
+    switch( digit( MP.mtinit, 4 )) {
+      default:
+      case 0: e = MT_ORIGIN; break;
+      case 1: e = MT_PLUS_END; break;
+      case 2: e = MT_MINUS_END; break;
+    }
+
+    setStraight(place, dir, len, e);
+
+    if (++ouf>MAX_TRIALS_BEFORE_STUCK)
+      throw StuckException("reached MAX_TRIALS_BEFORE_STUCK in createMicrotub");
+
+  } while( insidePosition() < 2 );
+
+}
+
+
+//----------------------------------------------------------------------------
+Microtub::~Microtub()
+{
+  MSG(13,"Microtub::destructor M%lx\n", name);
+
+#ifdef PSEUDO_YZ
+  if ( pseudoOccupancyArray.size() > pseudoIndex )
+    pseudoOccupancyArray[pseudoIndex] = 0;
+#endif
+
+  Hand * ha = firstHand();
+  while ( ha ) {
+    ha -> detach( DETACH_MTSHRINKS );
+    ha = firstHand();
+  }
+
+  ///if we belong to an Aster/Nucleus, we have to de-register
+  if ( mtOrganizer ) {
+    int indx = mtOrganizer -> deregisterMicrotub(this);
+    //we check that the Microtub was found in the Organizer:
+    if ( indx < 0 )
+      MSG.error("Microtub::~Microtub()", "deregisterMicrotub() failed");
+  }
+}
+
+//===========================================================================
+//===========================================================================
+//===========================================================================
+
+#ifdef PSEUDO_YZ
+//----------------------------------------------------------------------------
+/**Sets the position of this MT for display.
+ */
+void Microtub::setPseudoYZ( void )
+{
+  //make sure at least one position is allocated
+  if ( pseudoOccupancyArray.size() == 0 )
+    pseudoOccupancyArray.setSizeAndReset(1);
+
+  int i=0;
+  while ( pseudoOccupancyArray[i] ) {
+    i++;
+  }
+  pseudoIndex = i;
+  pseudoOccupancyArray[pseudoIndex] = 1;
+
+  // if the last position was used, allocate space that will be free next
+  // time this method is called
+  if ( i+1 == pseudoOccupancyArray.size() )
+    pseudoOccupancyArray.setSizeAndReset( i+2 );
+
+  //set the pseudo y coordinate. Used in play_draw1()
+  pseudoY = MP.mtpseudoY * ( i + 1 );
+
+  //set the pseudo z coordinate. Used in play_draw1()
+  pseudoZ = 0.0;
+}
+#endif
+
+//----------------------------------------------------------------------------
+void Microtub::setDynamicState(const MTEnd which, const MTDynamicState new_state )
+{
+  if ( new_state != mtState[which] )  {
+    mtState[ which ]            = new_state;
+    mtStateChange[ which ]      = sim.iterationCnt();
+    mtStateChangeWhere[ which ] = whereEnd( which );
+  }
+}
+
+//----------------------------------------------------------------------------
+/**
+ growthRate() returns the growth rate, in units of um / s,
+ growth speed is proportional to monomer concentrations,
+ it slowed down by opposing forces on the end of the MT,
+ forceOnEnd is given in stretch (micro-meters) ie. force / MP.km
+ shrinkage is independent of monomer concentration
+ */
+real Microtub::growthRate(real givenGrowthRate, real forceOnEnd, real currentMTlength) const
+{
+  real rate;
+
+  if ( givenGrowthRate < 0 )
+    rate = givenGrowthRate;  //< shrinking is unaffected by force
+  else {
+    //growth is proportional to concentration of free tubulin:
+    rate = givenGrowthRate * tubulin;
+    //antagonistic force (forceOnEnd < 0) decrease growth speed by an exponential factor:
+    //this is only done if (MP.mtdynstretch > 0), since MP.mtdynstretch = MP.mtdynforce / MP.km
+    //so the force dependence can be disabled by setting MP.mtdynforce = 0
+    if (( MP.mtdynstretch > 0 ) && ( forceOnEnd < 0 ))
+      rate *= exp( forceOnEnd / MP.mtdynstretch );
+  }
+
+  return rate;
+}
+
+
+
+//----------------------------------------------------------------------------
+real Microtub::transitionRate(const MTDynamicState currentState, const real & givenTransitionRate,
+                              const real givenGrowthRate, const Vecteur & positionOfTip) const
+{
+  switch ( MP.mtdynamic[0] ) {
+    // if MP.mtdynamic==0, no transition occur
+    case 0:
+      return 0;
+
+    // if MP.mtdynamic==1 (default), transitions are independent of MT length
+    case 1:
+      return givenTransitionRate;
+
+    /** if MP.mtdynamic==2, transitions depend linearly on the MT-length,
+      there is no rescue beyond L=13 microns, and no catastrophy at L=0
+      the rates given for rescue/catastrophies are those at L=10 microns.
+      Dogterom, Felix, Guet, Leibler, J. Cell Biol. 1996 (mitotic X.Eggs extracts)
+      Typical rates for this option should be:  cata=0.03 /sec. resc=0.01 /sec.
+      */
+    case 2: {
+      //printf("currentState = %i givenGrowthRate = %f\n", currentState, givenGrowthRate);
+      if ( givenGrowthRate > 0 )
+        return givenTransitionRate * length() / 10.0;
+      else {
+        real L = length();
+        if ( L < 13.0 )
+          return givenTransitionRate * (13.0-length()) / 3.0;
+        else
+          return 0;
+      }
+    } break;
+
+
+    /** if MP.mtdynamic==3, transitions depend on the growth rate at the end
+      of the MT, which is itself influenced by the force there.
+      the correspondance is linear: catastrophe time (seconds) = R * growthSpeed
+      R is such that growthSpeed = 3 um/min corresponds to cata time = 600 seconds
+      and: catastrophe rate = 1.0 / ( catastrophe time )
+      cf. <<Dynamic instability of MTs is regulated by force>>
+      M.Janson, M. de Dood, M. Dogterom. JCB 2003, Figure 2 C.
+
+      BEWARE: the resulting catastrophy at force=0 is quite low
+      for example, with a growth of 3 um/min (0.05 um/s) the cata-time is 600 sec.
+      this gives MTs of mean length <L> = 30 micro-meters, pretty long.
+      with a growth speed of 6 um/min, you have <L> = 120 micro-meters !!!
+      use this option for eg. in conjonction with limited tubulin supplies
+      */
+    case 3: {
+      if ( givenGrowthRate > 0 ) {
+        return 1.0 / ( MP.mtcatgrowthrel[0] + MP.mtcatgrowthrel[1] * givenGrowthRate );
+        //printf("end %i : tub=%6.3f growth = %6.4f um/s -> cata = %6.4f 1/s\n",
+        //     tubulin, which, growth, prob/MP.dt );
+      } else
+        return givenTransitionRate;
+    } break;
+
+    /** if MP.mtdynamic==4, transitions depend on the the position of the end
+	      there is a step-gradient (Heaviside function) of rescue and catastrophe in the X direction
+	      */
+    case 4: {        //Chaitanya
+        real trate;
+        real tipXpos = positionOfTip.XX;
+	    if ( tipXpos <= MP.nuVect[0] - (MP.nuradius + MP.stepDist)){
+	    		if ( currentState == 1 )
+	    		    trate = MP.mtresgradient[0];
+	    	    else if(currentState == 0)
+	    	        trate = MP.mtcatagradient[0];
+			}
+	    else if(tipXpos > MP.nuVect[0] - (MP.nuradius + MP.stepDist)){
+				if ( currentState == 1 )
+				    trate = MP.mtresgradient[1];
+			    else if(currentState == 0)
+	    	        trate = MP.mtcatagradient[1];
+	    	}
+	    return trate;
+        } break;
+
+    case 5:{
+		//CHAITANYA: based on Carazo-Salas et al and Caudron et als work we set the freq of catastrophe
+	    //and rescue in a shape over space, with respect to the target chromatin.
+	    // The gradient is initialized in sim_initial.cc as a stabilization field.
+		real trate=0;
+		//get the index of map
+        //int mapind = sim.catMap.indexFromPosition( positionOfTip );//THE VECT POS OF TIP PASSED TO transitionRate()
+        if ( currentState == MT_SHRINKING ){
+	        trate = sim.resMap[ sim.resMap.indexFromPosition( positionOfTip ) ];
+		}
+	    else if(currentState == MT_GROWING){
+	    	trate = sim.catMap[ sim.catMap.indexFromPosition( positionOfTip ) ];
+		}
+        //sim.catMap.test();//calls a print func in map
+        //printf("@microtub.transition transRate: %f\n", trate);
+        return trate;
+	    }		break;
+
+
+    /** if MP.mtdynamic==8, transitions depend on the the position of the end
+      there is a gradient of catastrophe in the X direction
+      */
+    case 8: {        //PREDOC
+      real xratio = 0.5 * ( 1 + positionOfTip.XX / space->getBoundingRect().XX );
+      if ( xratio < 0 ) xratio = 0;
+      if ( xratio > 1 ) xratio = 1;
+      return xratio * ( MP.mtcatagradient[1] - MP.mtcatagradient[0] ) + MP.mtcatagradient[0];
+    } break;
+
+    /** if MP.mtdynamic==9, microtubules plus-ends have normal dynamics while inside the box
+      but growing ends switch to shrinkage when outside the box
+      */
+    case 9: {
+      if ( space->isOutside( positionOfTip.getXYZ() ) && ( givenGrowthRate > 0 ))
+        return 1000;  //arbitrary high value, we could use 1/MP.dt
+      else
+        return givenTransitionRate;
+    } break;
+
+    //////
+    case 10: {
+		//CHAITANYA (16-Dec-2005) exponential gradient measured & analysed by maiwen- the analytical approx
+	    //As a next step, might need to calculate diffusion-reaction gradient for any deviations. or attempt
+	    //to it with something appropriate
+		real xPos = positionOfTip.XX;
+		real trate =0.0;
+		real xratio = 0.0; //relative position in x-direction (0-1)
+		// this decides where in space mtcatagradient[0] is applied and where mtcatagradient[1]
+		// the same applies to mtresgradient[0] and mtresgradient[0]
+		//the relative position of the tips of the mts
+		          xratio = ((0.5 * space->getBoundingRect().XX) + positionOfTip.XX)/ (real)MP.boxsize[0];
+		          //printf("%f\n", MP.midpt);
+			       if(currentState == MT_GROWING){
+					         //if a gradient is indicated in the parameter file (the 2 vals differ)
+				  	         if((MP.mtcatagradient[0]-MP.mtcatagradient[1]) != 0){
+				  	            /*if (xPos > MP.midpt)
+				  	               trate= MP.mtcatagradient[1];
+				  	            else if (xPos <= MP.midpt)
+				  	               trate= MP.mtcatagradient[0];
+				  	               */
+				  	              trate = 0;
+				  			 //if no gradient is indicated param file, use the transition rates uniformly
+				  			 } else
+				  			    trate = givenTransitionRate;
+				    }
+				    else if(currentState == MT_SHRINKING){
+
+				       if ((MP.mtresgradient[0]-MP.mtresgradient[1]) != 0){
+				  		  /*if (xPos > MP.midpt)
+				  		    trate= MP.mtresgradient[1];
+				  		    else if (xPos <= MP.midpt)
+				  		    trate= MP.mtresgradient[0];
+				  		  */
+				  		  trate = 0;
+				  		  //If no gradient
+				  		  } else
+				  		       trate = givenTransitionRate;
+				  		  }
+				  		  else
+				  	        trate = givenTransitionRate;
+				  	        //printf("@transitionRate, givenTrRate= %f\n", givenTransitionRate);
+		          return trate;
+	    }	break;
+	    ///////////////////////////////
+
+
+
+    /////
+
+
+
+    default:
+    MSG.error("Microtub::switchState", "missing case for mtdynamic = %i", MP.mtdynamic);
+  }
+  return 0;
+}
+
+
+//----------------------------------------------------------------------------
+/** Returns hand density at given microtubule end.
+The density is (# of motors in len)/len.
+*/
+real Microtub::getHandDensityAtEnd(MTEnd end, real len) const
+{
+  int nSitesLen;
+  int occupiedSites=0;
+
+  nSitesLen = (int) round(len/MP.mtdimersize);
+
+  switch (end) {
+  case MT_PLUS_END: {
+    int endSite = getLatticeSite ( abscissa( MT_PLUS_END ) );
+    nSitesLen = endSite - nSitesLen;
+    occupiedSites = 0;
+    for ( int nSite=endSite; nSite > nSitesLen; nSite--) {
+      if ( !siteFree ( nSite ) ) occupiedSites++;
+    }
+    break;
+  }
+  case MT_MINUS_END: {
+    int startSite = getLatticeSite ( abscissa( MT_MINUS_END ) );
+    occupiedSites = 0;
+    for ( int nSite=startSite; nSite < nSitesLen; nSite++) {
+      if ( !siteFree ( nSite ) ) occupiedSites++;
+    }
+    break;
+  }
+  default:
+    MSG.error("Microtub::getFreeSitesFromEnd", "unknown end type: %i", end);
+  }
+  return ((real)occupiedSites)/len;
+}
+
+//----------------------------------------------------------------------------
+void Microtub::stepPlusEndForDynamic()
+{
+  real forceOnPlusEnd = 0;   //the force applying on the end, projected on the MT axis
+  real growthRateWithForce;  //the growth rate with force corrections
+  real transitionProb;       //the probability of switching to the other state
+
+  MTDynamicState currentState = mtState[ MT_PLUS_END ];
+
+  if ( currentState == MT_PAUSE ) return;
+  assert(( currentState == MT_GROWING ) || ( currentState == MT_SHRINKING ));
+
+  //calculate the force acting on the point at the end:
+  forceOnPlusEnd = forceOnEnd( MT_PLUS_END );
+
+  //calculate the growth rate of the end, with force corrections:
+  growthRateWithForce = growthRate( MP.mtdynspeed[2+currentState], forceOnPlusEnd, length());
+
+  real growth = MP.dt * growthRateWithForce;
+
+#ifdef USE_LATTICE
+  // scale growth by hand concentration
+  if ( currentState == MT_GROWING && MP.mtplusdenratef != 0.0 ) {
+    real handDensity;
+    handDensity = getHandDensityAtEnd(MT_PLUS_END,1.0);
+    growth += MP.mtplusdenratef * MP.dt * handDensity;
+  }
+#endif
+
+  //check the ranges [mtminlength, mtmaxlength]:
+  if ( growth >= 0 ) {
+    if ( length() + growth > MP.mtmaxlength )
+      growth = MP.mtmaxlength - length();
+  } else {
+    if ( length() + growth < MP.mtminlength )
+      growth = MP.mtminlength - length();
+  }
+
+  //grow/shrink if needed
+  if ( growth != 0 )
+    grow2( growth );
+
+  //calculate the transition probability:
+  transitionProb = MP.dt * transitionRate( currentState, MP.mtdyntrans[2+currentState],
+                                           growthRateWithForce, whereEnd(MT_PLUS_END));
+
+  //printf("@plus end: transRate= %f\n", transitionProb/MP.dt);
+  //switch to the other state with the calculated probability:
+  if ( RNG.test( transitionProb ))
+    setDynamicState( MT_PLUS_END, currentState == MT_GROWING ? MT_SHRINKING : MT_GROWING );
+}
+
+
+//----------------------------------------------------------------------------
+void Microtub::stepMinusEndForDynamic()
+{
+  real forceOnMinusEnd = 0;  //the force applying on the end, projected on the MT axis
+  real growthRateWithForce;  //the growth rate with force corrections
+  real transitionProb;       //the probability of switching to the other state
+
+  MTDynamicState currentState = mtState[MT_MINUS_END];
+
+  if ( currentState == MT_PAUSE ) return;
+  assert(( currentState == MT_GROWING ) || ( currentState == MT_SHRINKING ));
+
+  //calculate the force acting on the point at the end:
+  forceOnMinusEnd = forceOnEnd( MT_MINUS_END );
+
+  //calculate the growth rate of the end, with force corrections:
+  growthRateWithForce = growthRate( MP.mtdynspeed[currentState], forceOnMinusEnd, length());
+
+  //check the ranges [mtminlength, mtmaxlength]:
+  real growth = MP.dt * growthRateWithForce;
+  if ( growth >= 0 ) {
+    if ( length() + growth > MP.mtmaxlength )
+      growth = MP.mtmaxlength - length();
+  } else {
+    if ( length() + growth < MP.mtminlength )
+      growth = MP.mtminlength - length();
+  }
+
+  //grow/shrink if needed
+  if ( growth != 0 )
+    grow1( growth );
+
+  //calculate the transition probability:
+  transitionProb = MP.dt * transitionRate( currentState, MP.mtdyntrans[currentState],
+                                           growthRateWithForce, whereEnd(MT_MINUS_END));
+
+  //switch to the other state with the calculated probability:
+  if ( RNG.test( transitionProb ))
+    setDynamicState( MT_MINUS_END, currentState == MT_GROWING ? MT_SHRINKING : MT_GROWING );
+}
+
+
+//----------------------------------------------------------------------------
+void Microtub::linkHand( Hand * ha )
+{
+  mtHands.pushFront((Node*)(ha) );
+}
+
+//----------------------------------------------------------------------------
+void Microtub::updateHands()
+{
+  //we iterate one step forward, because updating might lead to detachment:
+  Hand * hi = firstHand();
+  Hand * ha = hi;
+  while ( ha ) {
+    assert( ha->getMT() == this );
+    hi = hi->next();
+    ha -> updateInterpolated();
+    ha = hi;
+  }
+}
+
+
+//===========================================================================
+//===========================================================================
+//===========================================================================
+void Microtub::setBoxGlue() {
+
+  if ( space->isInside( whereEnd( MT_PLUS_END ))) {
+
+    //if the end is inside, we unlink the grafted,
+    //this way, no force is set in sim_solve.cc
+    if ( mtboxglue_grafted && mtboxglue_grafted -> isLinked() )
+      mtboxglue_grafted -> pop();
+
+  } else { //if the plus-end is outside,
+
+    //we create a pinching grafted if needed
+    if ( mtboxglue_grafted == 0 ) {
+      mtboxglue_grafted = new Grafted( MAGIC_TYPE, VZERO );
+    }
+
+    //reposition the grafted base if the MT is freshly outside:
+    if ( ! mtboxglue_grafted -> isLinked() ) {
+      sim.link( mtboxglue_grafted );
+      Vecteur P;
+      space->project( whereEnd( MT_PLUS_END ), P);
+      mtboxglue_grafted -> setPosition( P );
+    }
+
+    //initially attach the motor at the end of the microtubule:
+    if ( mtboxglue_grafted -> isFree() ) {
+      //attach to the closest MT position:
+      mtboxglue_grafted -> attachTo(this, 0, MT_PLUS_END);
+    } else
+      mtboxglue_grafted -> moveTo(0, MT_PLUS_END);
+
+    //always attached at the end of the microtubule
+   // mtboxglue_grafted -> moveTo( 0, MT_PLUS_END );
+
+  }
+}
+
+//----------------------------------------------------------------------------
+int Microtub::getLatticeSite(real ab) const
+{
+  return (int) round( ab/MP.mtdimersize );
+}
+
+//----------------------------------------------------------------------------
+///Tests if current pos is free
+bool Microtub::siteFree(real ab) const
+{
+  return lattice.isFree(getLatticeSite(ab));
+}
+
+//----------------------------------------------------------------------------
+///Sets a lattice site to free
+void Microtub::setSiteFree(real ab)
+{
+  //printf("Freeing site: %i on MT %lx\n",getLatticeSite(ab),name);
+  return lattice.setFree(getLatticeSite(ab));
+}
+
+//----------------------------------------------------------------------------
+///Sets a lattice site to free
+void Microtub::setSiteOccupied(real ab)
+{
+  //printf("Occupying site: %i on MT %lx\n",getLatticeSite(ab),name);
+  return lattice.setOccupied(getLatticeSite(ab));
+}
+
+//----------------------------------------------------------------------------
+void Microtub::step()
+{
+  if ( MP.mtdynamic[0] ) {
+
+    if ( MP.mtdynamic[1] ) stepMinusEndForDynamic();
+    if ( MP.mtdynamic[2] ) stepPlusEndForDynamic();
+
+    if ( length() < MP.mtminlength + EPSILON ) {
+
+      //if the Microtub is too short, MP.mtdelshort tell us what to do:
+      switch( MP.mtdelshort ) {
+        case 0:
+        default:            //we do nothing, the microtubule will wait for rescue
+          break;
+
+        case 1:
+          if ((mtOrganizer==0) || mtOrganizer->isDeletable(this)) {
+            delete( this );   //the microtubule is destroyed
+            return;
+          } else {
+            setDynamicState( MT_MINUS_END, MT_GROWING );
+            setDynamicState( MT_PLUS_END,  MT_GROWING );
+          }
+          break;
+
+        case 2:             //the microtubule is rescued both ends
+          setDynamicState( MT_MINUS_END, MT_GROWING );
+          setDynamicState( MT_PLUS_END,  MT_GROWING );
+          break;
+      }
+    }
+  }
+
+  //boxglue is an exploratory feature:
+  if ( MP.boxglue ) setBoxGlue();
+
+  optimalCut();
+  updateHands();
+}
+
+
+//==========================================================================
+//==========================================================================
+//==========================================================================
+
+void Microtub::write()
+//write 'this' on file "s" as a list of rods
+{
+  assert( name > 0 );
+  IO.writeRecordTag( "mt" );
+  IO.writeUInt16( name );
+  IO.writeUInt8( getType() );
+  IO.writeUInt8( mtColor );
+  IO.writeUInt16( nbPoints() );
+  IO.writeReal32( mtcut );
+  IO.writeReal32( mtcutbest );
+  IO.writeReal32( mtabminus );
+  IO.writeUInt8( mtState[MT_MINUS_END] );
+  IO.writeUInt8( mtState[MT_PLUS_END] );
+  for( int r = 0; r < nbPoints() ; ++ r )
+    IO.writeReal32Vect( DIM, pspts+DIM*r, true );
+}
+
+
+//----------------------------------------------------------------------------
+void Microtub::read()
+{
+  reset();
+  setFlag( sim.frameInBuffer() );
+  try {
+
+    if ( IO.getFileFormat() > 15 ) {
+      setType( IO.readUInt8() );
+      mtColor  = IO.readUInt8();
+    }
+
+    setNbPoints( IO.readUInt16() );
+    MSG(80, "Microtub::read     M%lx maxpts = %i\n", name, nbPoints() );
+
+    //this fix an error in an old version of write():
+    if (( IO.getFileFormat() < 16 ) && ( IO.getInputBinary() == 0 ))
+        IO.readUInt8();
+
+    mtcut             = IO.readReal32();
+    mtcutbest         = IO.readReal32();
+    mtabminus         = IO.readReal32();
+    mtState[MT_MINUS_END] = (MTDynamicState) IO.readUInt8();
+    mtState[MT_PLUS_END]  = (MTDynamicState) IO.readUInt8();
+    if ( IO.getFileFormat() < 18 )  sim.readAsterName();
+
+    for( int pp = 0; pp < nbPoints() ; ++pp )
+      IO.readReal32Vect( pspts + DIM * pp );
+
+    //impose the new value of the sectionning:
+    mtcutbest = MP.mtrodlength;
+    //we reset the vector for the forces, and Lagrangian:
+    setForcesAddr(0);
+    resetLagrange();
+
+  } catch( IOException e ) {
+    MSG("M%lx", name);
+    e.addBeforeMessage("Microtub::read : M ");
+    //reset();
+    throw e;
+  }
+}
+
+
+//----------------------------------------------------------------------------
+Vecteur Microtub::initDirection(int mode)
+{
+  static real ang=0;
+  static int cnt=0;
+
+  ++cnt;
+
+  switch ( mode )
+    {
+    case 0:
+      return Vecteur::randNormed();
+
+    case 1:
+      if ( cnt & 1 ) return -VY; else return VY;
+      //do { x=randomPlaceInVolume(); } while (x.normSquare()==0);
+      //return x.normalized();
+
+    case 2:
+      return VX;
+
+    case 3:
+      if ( cnt & 1 ) return VX; else return -VX;
+
+    case 4:
+      if ( cnt & 1 )
+        return (VX+VY).normalized();
+      else
+        return (VY-VX).normalized();
+
+    case 5:
+      ang += 2*PI/MP.mtmax;
+      return Vecteur(cos(ang),sin(ang),0);
+
+    case 6:
+      ang += PI/MP.mtmax;
+      return Vecteur(cos(ang),sin(ang),0);
+
+    case 7:
+      ang += PI;
+      return Vecteur(cos(ang), sin(ang),0);
+
+    case 8:
+      ang = 0.5*PI*(cnt%2);
+      return Vecteur(cos(ang),sin(ang),0);
+
+    case 9:
+      ang = PI * RNG.flip();
+      return Vecteur(cos(ang),sin(ang),0);
+
+    default:
+      MSG.error("Microtub::initDirection","unknowned init code");
+      return VZERO;
+    }
+}
+
+
+//----------------------------------------------------------------------------
+real Microtub::initLength( int mode )
+{
+  static int cnt=0;
+
+  int indx = 0;
+  //the MT initial length is set by the array MP.mtinitlength
+  if ( MP.nbValuesRead("mtinitlength") )
+    indx = cnt % MP.nbValuesRead("mtinitlength");
+
+  real result = MP.mtinitlength[indx];
+
+  switch( mode  ) {
+    case 0:
+      break;
+    case 1:
+      result = MP.mtminlength;
+      break;
+    case 2:
+      result = RNG.real_uniform_range( MP.mtminlength, MP.mtinitlength[0] );
+      break;
+
+    //follows an exponential distribution exp( - L * catast. / grow speed )
+    case 6:
+      result = - ( MP.mtdynspeed[2] / MP.mtdyntrans[2] ) * log( 1.0 - RNG.preal() );
+      break;
+
+    //follows an exponential distribution exp( - L * catast. / grow speed )
+    case 7:
+      result = - 0.25 * ( MP.mtdynspeed[2] / MP.mtdyntrans[2] ) * log( 1.0 - RNG.preal() );
+      break;
+
+    default:
+      MSG.error("Microtub::initLength","wrong init code");
+      break;
+    }
+
+  cnt++;
+  if ( result < MP.mtminlength ) result = MP.mtminlength;
+  if ( result > MP.mtmaxlength ) result = MP.mtmaxlength;
+  return result;
+}
+
+

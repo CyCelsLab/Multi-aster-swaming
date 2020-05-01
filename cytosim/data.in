@@ -1,0 +1,127 @@
+# ============================================================================
+#  Neha Khetan, 2017
+#  Self-organized collective rotation of multiple asters in confinement
+#  Aster swarming project: Localization of dynein motors at the cortex: 
+#  Two modes: 
+#      (a) Base: immobile ; Motor activity: ON ; Unbound: fixed
+#      (b) Base: mobile   ; Motor activity: ON ; Unbound: mobile based of 'D'
+# ===========================================================================
+
+nbiter          60000
+dt              0.005    
+   
+initcode        10       
+initfile         2        
+
+boxshape         3        
+boxsize   		15	15
+visc			0.05
+boxkm			100
+
+#==================================================
+#                      Records
+statistics       5         		300
+record           150
+#==================================================
+
+
+# =======  NUCLEUS =======
+numax              0     
+nuinit             1        
+nuptsmax           0        
+numtmax            0
+nuradius           10       
+numobil            0         
+
+
+
+# ===== MT DYNAMIC INSTABILITY GRADIENT  =======
+fieldTyp          0       0
+mtdynamic         0 	  0 	    1
+mtdynspeed        0       0         0.196     -0.325   
+mtdyntrans        0       0         0.049      0.0048
+
+
+# ====  MICROTUBULE =======
+mtmax				0
+mtinitlength 			4.25
+mtrodlength     		0.5      
+mtconfine       		1        
+mtmobile        		1
+mtdynforce	                0 #1.6
+
+
+#  =====    MTOC
+perAster			0
+asmax           	        20
+asinit          	        0
+asmtmax       		        40
+asVect				15 	0 	0
+
+
+#==============================================================================
+#   						COMPLEXES
+#  LEGEND:
+#          c = cortical dimer
+#          d = cytoplasmic diffusive tetramer
+#          i = immobilized dimers
+
+#               Dynein          Kinesin
+#                dD               dK
+#------------------------------------------------
+
+cxmax            0		  	      7070
+cxhatype1        0         		  	 1        
+cxhatype2        0         		  	 1   
+
+cxinit           0         		  	 0        
+cxdiff           10       	      		20
+cxlength         0.01      		  	0.05
+cxstiffness      200	   		  	100
+
+
+#==============================================================================
+# 							GRAFTED MOTORS 
+#                        CD          	 CK        ID       IK
+#-----------------------------------------------------------------
+ghmax   		 9420            0          0 		   0
+ghGradient		    2            0          0              0
+ghGradInfl   		    5      
+ghGradSlope		    1
+ghModelType 		    1
+km                        100      
+dthastep        	0.004   		# for hamodel = 4
+
+
+#==============================================================================
+#                         HAND TYPES
+#  HAND TYPE              0          1         	2         3
+# ------------------------------------------------------------------------------
+hamodel                   4       	6 	4         6
+haattachrate              12      	2.5        	12        5
+haattachdist              0.02    	0.05      	0.02      0.05
+haspeed                   -2      	0.04 	    -2        0.8
+haforce                   0.5       	5 			 2        7
+hadetachrate              1     	0.05 	  	 1        1
+haenddetachrate           1       	0.05 		 1        1
+charforce				  0       	1.6			 0        3
+hadetachmodel             6       	7 			 6        3
+hadetachkramerscale       1     
+haSlip			  1             0		     0		  0
+
+
+
+ficellsize       0.5     
+ 
+ 
+## --------- BLACK with Fluorescent colors BACKGROUND
+bgcolor  0xFFFFFFFF
+hacolor  0x6699FFFF	0x0000FFFF 0xFFAA00FF	
+cxcolor  0xFF000080	0xFF0000FF
+mtcolor  0x555555FF 0x009900FF 0x000000FF 	
+
+cxsize  6
+mtwidth	2
+ghsize  10
+
+scalebar 		1

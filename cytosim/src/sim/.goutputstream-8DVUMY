@@ -1,0 +1,254 @@
+//RCS: $Id: microtub.cc,v 2.66 2005/04/22 12:13:06 nedelec Exp $
+// modified by Chaitanya Athale 08/02/2006
+//-------------------------------microtub.cc----------------------------------
+//                contains the basic methods for the class
+//----------------------------------------------------------------------------
+
+#include "assert_macro.h"
+#include "microtub.h"
+#include "hand.h"
+#include "sim.h"
+#include "exceptions.h"
+#include "iowrapper.h"
+#include "microtub_organizer.h"
+
+///amount of free tubulin
+real     Microtub::tubulin = 0;
+
+///space for the microtubules
+Space *  Microtub::space = 0;
+
+#ifdef PSEUDO_YZ
+Array<int> Microtub::pseudoOccupancyArray;
+#endif
+
+//============================================================================
+
+//microtubConstructorBase() should be called only by the constructors
+void Microtub::microtubConstructorBase()
+{
+  reset();
+#ifdef PSEUDO_YZ
+  // place in display array
+  setPseudoYZ();
+#endif
+}
+
+//----------------------------------------------------------------------------
+void Microtub::reset()
+{
+  Fiber::reset();
+  mtColor           = 0;
+  mtOrganizer       = 0;
+  mtboxglue_grafted = 0;
+
+  mtStateChange[ MT_NOT_END   ] = sim.iterationCnt();     //this is used for total MT life time.
+  mtStateChange[ MT_PLUS_END  ] = sim.iterationCnt();
+  mtStateChange[ MT_MINUS_END ] = sim.iterationCnt();
+
+  mtStateChangeWhere[ MT_NOT_END   ] = VZERO;             //this is used for total MT life time.
+  mtStateChangeWhere[ MT_PLUS_END  ] = VZERO;
+  mtStateChangeWhere[ MT_MINUS_END ] = VZERO;
+
+  mtState[ MT_NOT_END   ]  = MT_GROWING;   //this value of mtState[] is not used
+
+  mtState[ MT_MINUS_END ] = ( MP.mtinitstate[0] ? MT_SHRINKING : MT_GROWING );
+  mtState[ MT_PLUS_END  ] = ( MP.mtinitstate[1] ? MT_SHRINKING : MT_GROWING );
+}
+
+
+//========================================================================
+//  - - - - - - - - - - - - - - CONSTRUCTORS - - - - - - - - - - - - - - -
+//========================================================================
+
+//set microtubules as a line, starting at w, of length alen
+Microtub::Microtub(const Vecteur w, const Vecteur dir, const real len, const MTEnd end)
+{
+  microtubConstructorBase();
+  setStraight(w, dir, len, end);
+}
+
+//----------------------------------------------------------------------------
+//creates a new microtubule with a center of gravity at position w
+Microtub::Microtub(const Vecteur w)
+{
+  microtubConstructorBase();
+
+  Vecteur dir = initDirection();
+  real len    = initLength();
+  setStraight(w, dir, len, MT_ORIGIN);
+}
+
+//----------------------------------------------------------------------------
+//creates a microtubule according to MP.mtinit
+Microtub::Microtub(int)
+{
+  microtubConstructorBase();
+
+  Vecteur place, dir;
+  real len;
+  MTEnd e = MT_ORIGIN;
+
+  unsigned long ouf=0;
+
+  do {
+
+    place = initPosition( space, digit(MP.mtinit,1));
+    dir   = initDirection();
+    len   = initLength();
+
+    switch( digit( MP.mtinit, 4 )) {
+      default:
+      case 0: e = MT_ORIGIN; break;
+      case 1: e = MT_PLUS_END; break;
+      case 2: e = MT_MINUS_END; break;
+    }
+
+    setStraight(place, dir, len, e);
+
+    if (++ouf>MAX_TRIALS_BEFORE_STUCK)
+      throw StuckException("reached MAX_TRIALS_BEFORE_STUCK in createMicrotub");
+
+  } while( insidePosition() < 2 );
+
+}
+
+
+//----------------------------------------------------------------------------
+Microtub::~Microtub()
+{
+  MSG(13,"Microtub::destructor M%lx\n", name);
+
+#ifdef PSEUDO_YZ
+  if ( pseudoOccupancyArray.size() > pseudoIndex )
+    pseudoOccupancyArray[pseudoIndex] = 0;
+#endif
+
+  Hand * ha = firstHand();
+  while ( ha ) {
+    ha -> detach( DETACH_MTSHRINKS );
+    ha = firstHand();
+  }
+
+  ///if we belong to an Aster/Nucleus, we have to de-register
+  if ( mtOrganizer ) {
+    int indx = mtOrganizer -> deregisterMicrotub(this);
+    //we check that the Microtub was found in the Organizer:
+    if ( indx < 0 )
+      MSG.error("Microtub::~Microtub()", "deregisterMicrotub() failed");
+  }
+}
+
+//===========================================================================
+//===========================================================================
+//===========================================================================
+
+#ifdef PSEUDO_YZ
+//----------------------------------------------------------------------------
+/**Sets the position of this MT for display.
+ */
+void Microtub::setPseudoYZ( void )
+{
+  //make sure at least one position is allocated
+  if ( pseudoOccupancyArray.size() == 0 )
+    pseudoOccupancyArray.setSizeAndReset(1);
+
+  int i=0;
+  while ( pseudoOccupancyArray[i] ) {
+    i++;
+  }
+  pseudoIndex = i;
+  pseudoOccupancyArray[pseudoIndex] = 1;
+
+  // if the last position was used, allocate space that will be free next
+  // time this method is called
+  if ( i+1 == pseudoOccupancyArray.size() )
+    pseudoOccupancyArray.setSizeAndReset( i+2 );
+
+  //set the pseudo y coordinate. Used in play_draw1()
+  pseudoY = MP.mtpseudoY * ( i + 1 );
+
+  //set the pseudo z coordinate. Used in play_draw1()
+  pseudoZ = 0.0;
+}
+#endif
+
+//----------------------------------------------------------------------------
+void Microtub::setDynamicState(const MTEnd which, const MTDynamicState new_state )
+{
+  if ( new_state != mtState[which] )  {
+    mtState[ which ]            = new_state;
+    mtStateChange[ which ]      = sim.iterationCnt();
+    mtStateChangeWhere[ which ] = whereEnd( which );
+  }
+}
+
+//----------------------------------------------------------------------------
+/**
+ growthRate() returns the growth rate, in units of um / s,
+ growth speed is proportional to monomer concentrations,
+ it slowed down by opposing forces on the end of the MT,
+ forceOnEnd is given in stretch (micro-meters) ie. force / MP.km
+ shrinkage is independent of monomer concentration
+ */
+real Microtub::growthRate(real givenGrowthRate, real forceOnEnd, real currentMTlength) const
+{
+  real rate;
+
+  if ( givenGrowthRate < 0 )
+    rate = givenGrowthRate;  //< shrinking is unaffected by force
+  else {
+    //growth is proportional to concentration of free tubulin:
+    rate = givenGrowthRate * tubulin;
+    //antagonistic force (forceOnEnd < 0) decrease growth speed by an exponential factor:
+    //this is only done if (MP.mtdynstretch > 0), since MP.mtdynstretch = MP.mtdynforce / MP.km
+    //so the force dependence can be disabled by setting MP.mtdynforce = 0
+    if (( MP.mtdynstretch > 0 ) && ( forceOnEnd < 0 ))
+      rate *= exp( forceOnEnd / MP.mtdynstretch );
+  }
+
+  return rate;
+}
+
+
+
+//----------------------------------------------------------------------------
+real Microtub::transitionRate(const MTDynamicState currentState, const real & givenTransitionRate,
+                              const real givenGrowthRate, const Vecteur & positionOfTip) const
+{
+  switch ( MP.mtdynamic[0] ) {
+    // if MP.mtdynamic==0, no transition occur
+    case 0:
+      return 0;
+
+    // if MP.mtdynamic==1 (default), transitions are independent of MT length
+    case 1:
+      return givenTransitionRate;
+
+    /** if MP.mtdynamic==2, transitions depend linearly on the MT-length,
+      there is no rescue beyond L=13 microns, and no catastrophy at L=0
+      the rates given for rescue/catastrophies are those at L=10 microns.
+      Dogterom, Felix, Guet, Leibler, J. Cell Biol. 1996 (mitotic X.Eggs extracts)
+      Typical rates for this option should be:  cata=0.03 /sec. resc=0.01 /sec.
+      */
+    case 2: {
+      //printf("currentState = %i givenGrowthRate = %f\n", currentState, givenGrowthRate);
+      if ( givenGrowthRate > 0 )
+        return givenTransitionRate * length() / 10.0;
+      else {
+        real L = length();
+        if ( L < 13.0 )
+          return givenTransitionRate * (13.0-length()) / 3.0;
+        else
+          return 0;
+      }
+    } break;
+
+
+    /** if MP.mtdynamic==3, transitions depend on the growth rate at the end
+      of the MT, which is itself influenced by the force there.
+      the correspondance is linear: catastrophe time (seconds) = R * growthSpeed
+      R is such that growthSpeed = 3 um/min corresponds to cata time = 600 seconds
+      and: catastrophe rate = 1.0 / ( catastrophe time )
+      cf. <<Dynamic instability of MTs is regulated by force>>
+      M.Janso

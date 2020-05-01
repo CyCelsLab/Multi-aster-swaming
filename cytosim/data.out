@@ -1,0 +1,57 @@
+nbiter           60000    
+dt               0.005    
+record           150      
+km               100      
+visc             0.05     
+initcode         10       
+initfile         2        
+statistics       5         300      
+ghstatistics     3         300      
+boxkm            100      
+boxshape         3        
+boxsize          15        15       
+numax            0        
+nuinit           1        
+nuptsmax         0        
+numtmax          0        
+nuradius         10       
+numobil          0        
+mtmax            0        
+mtrodlength      0.5      
+mtconfine        1        
+mtmobile         1        
+mtinitlength     4.25     
+mtdynamic        1         0         0        
+mtdynforce       0        
+mtdynspeed       0         0         0.196     -0.325   
+mtdyntrans       0         0         0.049     0.0048   
+asmax            20       
+asinit           0        
+asmtmax          40       
+perAster         0        
+ghmax            942       0         0         0        
+ghGradient       2         0         0         0        
+ghGradSlope      1        
+ghGradInfl       5        
+ghModelType      1        
+cxmax            0         7070     
+cxinit           0         0        
+cxdiff           0         20       
+cxlength         0.01      0.05     
+cxhatype1        0         1        
+cxhatype2        0         1        
+hamodel          4         6         4         6        
+haattachrate     12        2.5       12        5        
+haattachdist     0.02      0.05      0.02      0.05     
+haspeed          -2        0.04      -2        0.8      
+haSlip           0         0         0         0        
+dthastep         0.004    
+haforce          1.75      5         2         7        
+charforce        0         1.6       0         3        
+hadetachrate     1         0.05      1         1        
+hadetachmodel    6         7         6         3        
+haenddetachrate  1         0.05      1         1        
+hadetachkramerscale 1        
+ficellsize       0.5      
+asVect           15        0         0        
+fieldTyp         0         0        
